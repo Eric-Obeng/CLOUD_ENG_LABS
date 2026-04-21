@@ -1,2 +1,2 @@
 # CloudFormation GitSync deployment config
-template-file-path: lab-2/iam-resources.yaml
+template-file-path: lab-2/iam-deployment.yaml
