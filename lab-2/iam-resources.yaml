@@ -1,0 +1,178 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  IAM Automation Lab - Creates IAM users, group, and a shared temporary password stored in Secrets Manager.
+
+# ===============================================================
+# SECRETS MANAGER - Auto-generated one-time password
+# ===============================================================
+Resources:
+  # This generates a random password and stores it securely.
+  # All 3 IAM users will use this same temporary password.
+  LabTempPassword:
+    Type: AWS::SecretsManager::Secret
+    # What to do if the stack is DELETED — Retain keeps the secret safe
+    DeletionPolicy: Retain
+    # What to do if this resource needs to be REPLACED during update
+    UpdateReplacePolicy: Retain
+    Properties:
+      Name: "LabTemporaryPassword"
+      Description: "Auto-generated temporary password for IAM Lab users"
+      GenerateSecretString:
+        # These rules define what the password looks like
+        SecretStringTemplate: '{"username": "lab-users"}'
+        GenerateStringKey: "password"
+        PasswordLength: 12
+        ExcludeCharacters: '"@/\\' # Avoid chars that break console login
+
+  # ============================================================
+  # S3 GROUP + POLICY
+  # Permissions: List all S3 buckets only
+  # ============================================================
+
+  S3UserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: "S3UserGroup"
+
+  S3GroupPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "S3ListBucketsPolicy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListAllMyBuckets # See the list of buckets
+              - s3:GetBucketLocation # View bucket region info
+            Resource: "*"
+      Groups:
+        - !Ref S3UserGroup # Attach this policy to the S3 group
+
+  # ============================================================
+  # EC2 GROUP + POLICY
+  # Permissions: List EC2 instances + Create EC2 instances
+  # Note: ec2-user1 will have an EXTRA deny on RunInstances
+  # ============================================================
+
+  EC2UserGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: "EC2UserGroup"
+
+  EC2GroupPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "EC2AccessPolicy"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:DescribeInstances # List EC2 instances
+              - ec2:DescribeImages # Needed to launch instances
+              - ec2:DescribeInstanceTypes # Needed to launch instances
+              - ec2:DescribeKeyPairs # Needed to launch instances
+              - ec2:DescribeSecurityGroups # Needed to launch instances
+              - ec2:DescribeSubnets # Needed to launch instances
+              - ec2:DescribeVpcs # Needed to launch instances
+              - ec2:RunInstances # CREATE EC2 instances
+              - ec2:TerminateInstances # Terminate instances
+            Resource: "*"
+      Groups:
+        - !Ref EC2UserGroup
+
+  # ============================================================
+  # IAM USERS
+  # All users: console access + temp password + force reset
+  # ============================================================
+
+  # --- ec2-user1 ---
+  # Member of EC2Group but CANNOT create EC2 (explicit Deny)
+  EC2User1:
+    Type: AWS::IAM::User
+    DependsOn: LabTempPassword # Wait for password to be created first
+    Properties:
+      UserName: "ec2-user1"
+      Groups:
+        - !Ref EC2UserGroup
+      LoginProfile:
+        # Pull the generated password from Secrets Manager
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretId}:SecretString:password}}"
+          - SecretId: !Ref LabTempPassword
+        PasswordResetRequired: true # Force password change on first login
+
+  # Deny policy attached DIRECTLY to ec2-user1 (not the group)
+  # In AWS, explicit DENY always overrides any Allow
+  EC2User1DenyCreatePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: "DenyEC2RunInstances"
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Deny
+            Action:
+              - ec2:RunInstances # Block this user from creating instances
+            Resource: "*"
+      Users:
+        - !Ref EC2User1 # Attached to user, not group
+
+  # --- ec2-user2 ---
+  # Member of EC2Group, inherits ALL permissions including RunInstances
+  EC2User2:
+    Type: AWS::IAM::User
+    DependsOn: LabTempPassword
+    Properties:
+      UserName: "ec2-user2"
+      Groups:
+        - !Ref EC2UserGroup
+      LoginProfile:
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretId}:SecretString:password}}"
+          - SecretId: !Ref LabTempPassword
+        PasswordResetRequired: true
+
+  # --- s3-user ---
+  # Member of S3Group only, cannot access EC2 at all
+  S3User:
+    Type: AWS::IAM::User
+    DependsOn: LabTempPassword
+    Properties:
+      UserName: "s3-user"
+      Groups:
+        - !Ref S3UserGroup
+      LoginProfile:
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretId}:SecretString:password}}"
+          - SecretId: !Ref LabTempPassword
+        PasswordResetRequired: true
+
+# ============================================================
+# OUTPUTS - Useful info after stack deploys
+# ============================================================
+Outputs:
+  SecretManagerARN:
+    Description: "ARN of the Secrets Manager secret holding the temp password"
+    Value: !Ref LabTempPassword
+
+  EC2GroupName:
+    Description: "IAM Group for EC2 users"
+    Value: !Ref EC2UserGroup
+
+  S3GroupName:
+    Description: "IAM Group for S3 users"
+    Value: !Ref S3UserGroup
+
+  EC2User1Name:
+    Description: "ec2-user1 (can list EC2, cannot create)"
+    Value: !Ref EC2User1
+
+  EC2User2Name:
+    Description: "ec2-user2 (can list and create EC2)"
+    Value: !Ref EC2User2
+
+  S3UserName:
+    Description: "s3-user (can list S3 buckets)"
+    Value: !Ref S3User
