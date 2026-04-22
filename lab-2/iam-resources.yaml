@@ -69,15 +69,20 @@ Resources:
         Statement:
           - Effect: Allow
             Action:
-              - ec2:DescribeInstances # List EC2 instances
-              - ec2:DescribeImages # Needed to launch instances
-              - ec2:DescribeInstanceTypes # Needed to launch instances
-              - ec2:DescribeKeyPairs # Needed to launch instances
-              - ec2:DescribeSecurityGroups # Needed to launch instances
-              - ec2:DescribeSubnets # Needed to launch instances
-              - ec2:DescribeVpcs # Needed to launch instances
-              - ec2:RunInstances # CREATE EC2 instances
-              - ec2:TerminateInstances # Terminate instances
+              - ec2:DescribeInstances
+              - ec2:DescribeImages
+              - ec2:DescribeInstanceTypes
+              - ec2:DescribeKeyPairs
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeSubnets
+              - ec2:DescribeVpcs
+              - ec2:RunInstances
+              - ec2:TerminateInstances
+              - ec2:CreateSecurityGroup
+              - ec2:CreateTags
+              - ec2:DescribeAvailabilityZones
+              - ec2:AuthorizeSecurityGroupIngress
+              - ec2:AuthorizeSecurityGroupEgress
             Resource: "*"
       Groups:
         - !Ref EC2UserGroup
