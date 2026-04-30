@@ -154,6 +154,20 @@ Resources:
           - SecretId: !Ref LabTempPassword
         PasswordResetRequired: true
 
+  S3User1:
+    Type: AWS::IAM::User
+    DependsOn: LabTempPassword
+    Properties:
+      UserName: "s3-user1"
+      Groups:
+        - !Ref S3UserGroup
+      LoginProfile:
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretId}:SecretString:password}}"
+          - SecretId: !Ref LabTempPassword
+        PasswordResetRequired: true
+
+
 # ============================================================
 # OUTPUTS - Useful info after stack deploys
 # ============================================================
