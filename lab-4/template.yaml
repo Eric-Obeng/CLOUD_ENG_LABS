@@ -1,0 +1,404 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: |
+  Highly Available Multi-AZ VPC with public and  private subnets, IGW, dual NAT Gateways, Apache web tier, and SSM-managed EC2 instances.
+
+Parameters:
+  VpcCiDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for the first public subnet
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for the second public subnet
+
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.0.3.0/24
+    Description: CIDR block for the first private subnet
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.0.4.0/24
+    Description: CIDR block for the second private sunet
+
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-x86_64
+    Description: Latest Amazon Linux 2023 AMI from SSM public parameters
+
+Resources:
+  # VPC — main network container for all lab resources, DNS enabled for SSM connectivity
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCiDR
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: lab4-vpc
+
+  # Public Subnet 1 -  web tier subnet in AZ-1, auto assigns public IPs for internet-facing EC2 instances
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: lab4-public-subnet-1
+
+  # Public Subnet 2 - web tier subnet in AZ-2, auto assigns public IPs for internet-facing EC2 instances
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PublicSubnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: lab4-public-subnet-2
+
+  # Private Subnet 1 - app tier subnet in AZ-1, no public IPs, outbound only via NAT GW in Public Subnet 1
+  PrivateSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet1CIDR
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: lab4-private-subnet-1
+
+  # Private Subnet 2 - app tier subnet in AZ-2, no public IPs, outbound only via NAT GW in Public Subnet 2
+  PrivateSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: !Ref PrivateSubnet2CIDR
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: lab4-private-subnet-2
+
+  # internet gateway - entry point for internet traffic to/from the VPC
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: lab4-igw
+
+  # IGW Attachment - connects the IGW to the VPC to enable internet access
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+  # Elastic IP A — static public IP assigned to NAT Gateway A for consistent outbound identity
+  EIPA:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachInternetGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: lab4-eip-a
+
+  # Elastic IP B — static public IP assigned to NAT Gateway B for consistent outbound identity
+  EIPB:
+    Type: AWS::EC2::EIP
+    DependsOn: AttachInternetGateway
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: lab4-eip-b
+
+  # NAT Gateway A — enables outbound internet access for private subnet A without exposing it inbound
+  NATGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPA.AllocationId
+      SubnetId: !Ref PublicSubnet1
+      Tags:
+        - Key: Name
+          Value: lab4-nat-gw-a
+
+  # NAT Gateway B — enables outbound internet access for private subnet B without exposing it inbound
+  NATGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt EIPB.AllocationId
+      SubnetId: !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: lab4-nat-gw-b
+
+  # Public Route Table — shared by both public subnets, routes internet traffic through the IGW
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab4-public-rt
+
+  # Public Default Route — sends all outbound internet traffic from public subnets to the IGW
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId: !Ref InternetGateway
+
+  # Associates public subnet 1 with the public route table to enable internet routing
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  # Associates public subnet 2 with the public route table to enable internet routing
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # Private Route Table A — routes outbound traffic from private subnet A through NAT Gateway A
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab4-private-rt-a
+
+  # Private Default Route A — sends outbound internet traffic from AZ-A private subnet to NAT GW A
+  PrivateDefaultRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGatewayA
+
+  # Associates private subnet 1 with its dedicated route table to enforce AZ-local NAT routing
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet1
+      RouteTableId: !Ref PrivateRouteTableA
+
+  # Private Route Table B — routes outbound traffic from private subnet B through NAT Gateway B
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+        - Key: Name
+          Value: lab4-private-rt-b
+
+  # Private Default Route B — sends outbound internet traffic from AZ-B private subnet to NAT GW B
+  PrivateDefaultRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NATGatewayB
+
+  # Associates private subnet 2 with its dedicated route table to enforce AZ-local NAT routing
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet2
+      RouteTableId: !Ref PrivateRouteTableB
+
+  # IAM Role — grants EC2 instances permission to communicate with SSM for Session Manager access
+  SSMInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lab4-ssm-instance-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: lab4-ssm-role
+
+  # Instance Profile — wraps the IAM role so it can be attached directly to EC2 instances at launch
+  SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: lab4-ssm-instance-profile
+      Roles:
+        - !Ref SSMInstanceRole
+
+  # Web Tier Security Group — controls inbound traffic to public EC2s, allows HTTP and ICMP only
+  WebTierSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web tier - allow HTTP and ICMP inbound, no SSH
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: "0.0.0.0/0"
+          Description: Allow HTTP from internet
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: "0.0.0.0/0"
+          Description: Allow ICMP ping from anywhere for validation
+      Tags:
+        - Key: Name
+          Value: lab4-web-sg
+
+  # App Tier Security Group — restricts private EC2s to ICMP from within VPC only, no internet exposure
+  AppTierSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: App tier - allow ICMP from VPC only, no SSH, no HTTP
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: icmp
+          FromPort: -1
+          ToPort: -1
+          CidrIp: !Ref VpcCiDR
+          Description: Allow ICMP ping from within VPC only for validation
+      Tags:
+        - Key: Name
+          Value: lab4-app-sg
+
+  # Web EC2 Instance 1 — public web server in AZ-A, runs Apache via User Data, SSM managed
+  WebInstanceA:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PublicSubnet1
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      SecurityGroupIds:
+        - !Ref WebTierSG
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html>
+            <head><title>Lab 4 - Web Server A</title></head>
+            <body>
+              <h1>Eric Obeng</h1>
+              <h2>Lab 4 - Highly Available Multi-AZ VPC</h2>
+              <p>Availability Zone: A | Instance: Web Server A</p>
+            </body>
+          </html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: lab4-web-ec2-a
+
+  # Web EC2 Instance 2 — public web server in AZ-B, runs Apache via User Data, SSM managed
+  WebInstanceB:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PublicSubnet2
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      SecurityGroupIds:
+        - !Ref WebTierSG
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+          systemctl start httpd
+          systemctl enable httpd
+          echo "<html>
+            <head><title>Lab 4 - Web Server B</title></head>
+            <body>
+              <h1>Eric Obeng</h1>
+              <h2>Lab 4 - Highly Available Multi-AZ VPC</h2>
+              <p>Availability Zone: B | Instance: Web Server B</p>
+            </body>
+          </html>" > /var/www/html/index.html
+      Tags:
+        - Key: Name
+          Value: lab4-web-ec2-b
+
+  # App EC2 Instance A — private app server in AZ-A, no public IP, accessible via SSM only
+  AppInstanceA:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnet1
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      SecurityGroupIds:
+        - !Ref AppTierSG
+      Tags:
+        - Key: Name
+          Value: lab4-app-ec2-a
+
+  # App EC2 Instance B — private app server in AZ-B, no public IP, accessible via SSM only
+  AppInstanceB:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnet2
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      SecurityGroupIds:
+        - !Ref AppTierSG
+      Tags:
+        - Key: Name
+          Value: lab4-app-ec2-b
+
+Outputs:
+  WebInstanceAPublicIP:
+    Description: Public IP of Web Instance A — use this in browser to validate Apache
+    Value: !GetAtt WebInstanceA.PublicIp
+
+  WebInstanceBPublicIP:
+    Description: Public IP of Web Instance B — use this in browser to validate Apache
+    Value: !GetAtt WebInstanceB.PublicIp
+
+  WebInstanceAId:
+    Description: Instance ID of Web EC2 A — use in Session Manager to connect
+    Value: !Ref WebInstanceA
+
+  WebInstanceBId:
+    Description: Instance ID of Web EC2 B — use in Session Manager to connect
+    Value: !Ref WebInstanceB
+
+  AppInstanceAId:
+    Description: Instance ID of App EC2 A — use in Session Manager to connect
+    Value: !Ref AppInstanceA
+
+  AppInstanceBId:
+    Description: Instance ID of App EC2 B — use in Session Manager to connect
+    Value: !Ref AppInstanceB
+
