@@ -1,6 +1,9 @@
-AWSTemplateFormatVersion: '2010-09-09'
-Description: |
-  Highly Available Auto-Scaling Web Tier with Application Load Balancer. Deploys a full VPC with public/private subnets across 2 AZs, NAT Gateway, ALB, Auto Scaling Group with CPU-based scaling policies, and Apache web servers that display instance metadata and provide a CPU stress mechanism.
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Highly Available Auto-Scaling Web Tier with Application Load Balancer.
+  Deploys a full VPC with public/private subnets across 2 AZs, NAT Gateway,
+  ALB, Auto Scaling Group with CPU-based scaling policies, and Apache web
+  servers that display instance metadata and provide a CPU stress mechanism.
 
 # =============================================================================
 # PARAMETERS - Make the template reusable across regions and instance sizes
@@ -8,8 +11,8 @@ Description: |
 Parameters:
   LatestAmiId:
     Description: Latest Amazon Linux 2 AMI (auto-resolved from SSM Parameter Store)
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
+    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
 
   InstanceType:
     Description: EC2 instance type for the web servers
@@ -23,7 +26,7 @@ Parameters:
   VpcCidr:
     Description: CIDR block for the VPC
     Type: String
-    Default: 10.0.0.0/16
+    Default: "10.0.0.0/16"
 
 Resources:
   # ===========================================================================
@@ -53,10 +56,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.1.0/24
-      AvailabilityZone: !Select
-        - 0
-        - !GetAZs ''
+      CidrBlock: "10.0.1.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -66,10 +67,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.2.0/24
-      AvailabilityZone: !Select
-        - 1
-        - !GetAZs ''
+      CidrBlock: "10.0.2.0/24"
+      AvailabilityZone: !Select [1, !GetAZs ""]
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -82,10 +81,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.3.0/24
-      AvailabilityZone: !Select
-        - 0
-        - !GetAZs ''
+      CidrBlock: "10.0.3.0/24"
+      AvailabilityZone: !Select [0, !GetAZs ""]
       Tags:
         - Key: Name
           Value: Private-Subnet-AZ1
@@ -94,10 +91,8 @@ Resources:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPC
-      CidrBlock: 10.0.4.0/24
-      AvailabilityZone: !Select
-        - 1
-        - !GetAZs ''
+      CidrBlock: "10.0.4.0/24"
+      AvailabilityZone: !Select [1, !GetAZs ""]
       Tags:
         - Key: Name
           Value: Private-Subnet-AZ2
@@ -186,7 +181,7 @@ Resources:
     DependsOn: IGWAttachment
     Properties:
       RouteTableId: !Ref PublicRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: "0.0.0.0/0"
       GatewayId: !Ref InternetGateway
 
   PublicSubnet1RTAssoc:
@@ -214,7 +209,7 @@ Resources:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PrivateRouteTable
-      DestinationCidrBlock: 0.0.0.0/0
+      DestinationCidrBlock: "0.0.0.0/0"
       NatGatewayId: !Ref NATGateway
 
   PrivateSubnet1RTAssoc:
@@ -259,7 +254,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
-          CidrIp: 0.0.0.0/0
+          CidrIp: "0.0.0.0/0"
       Tags:
         - Key: Name
           Value: ALB-SG
@@ -326,7 +321,7 @@ Resources:
       HealthyThresholdCount: 2
       UnhealthyThresholdCount: 3
       Matcher:
-        HttpCode: '200'
+        HttpCode: "200"
       Tags:
         - Key: Name
           Value: AutoScale-TG
@@ -367,253 +362,257 @@ Resources:
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
         InstanceType: !Ref InstanceType
-        SecurityGroupIds:
-          - !Ref EC2SecurityGroup
+        NetworkInterfaces:
+          - DeviceIndex: 0
+            AssociatePublicIpAddress: false
+            Groups:
+              - !Ref EC2SecurityGroup
         TagSpecifications:
           - ResourceType: instance
             Tags:
               - Key: Name
                 Value: AutoScale-WebServer
-        UserData: !Base64 |
-          #!/bin/bash -xe
-          # ==============================================================
-          # EC2 USER DATA SCRIPT
-          # This runs automatically on first boot of every new instance.
-          # ==============================================================
+        UserData:
+          Fn::Base64: |
+            #!/bin/bash -xe
+            # ==============================================================
+            # EC2 USER DATA SCRIPT
+            # This runs automatically on first boot of every new instance.
+            # ==============================================================
 
-          # --- Step 1: Install packages ---
-          # httpd = Apache web server
-          # We install stress via amazon-linux-extras EPEL repo
-          yum update -y
-          yum install -y httpd
+            # --- Step 1: Install packages ---
+            # httpd = Apache web server
+            # We install stress via amazon-linux-extras EPEL repo
+            yum update -y
+            yum install -y httpd
 
-          # Install stress tool for CPU load generation
-          amazon-linux-extras install epel -y
-          yum install -y stress
+            # Install stress tool for CPU load generation
+            amazon-linux-extras install epel -y
+            yum install -y stress
 
-          # Start and enable Apache so it survives reboots
-          systemctl start httpd
-          systemctl enable httpd
+            # Start and enable Apache so it survives reboots
+            systemctl start httpd
+            systemctl enable httpd
 
-          # --- Step 2: Fetch instance metadata using IMDSv2 ---
-          # First get a session token (IMDSv2 security requirement)
-          TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
-            -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+            # --- Step 2: Fetch instance metadata using IMDSv2 ---
+            # First get a session token (IMDSv2 security requirement)
+            TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+              -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
 
-          # Then use the token to fetch metadata
-          INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
-            http://169.254.169.254/latest/meta-data/instance-id)
-          PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
-            http://169.254.169.254/latest/meta-data/local-ipv4)
-          AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
-            http://169.254.169.254/latest/meta-data/placement/availability-zone)
+            # Then use the token to fetch metadata
+            INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/instance-id)
+            PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/local-ipv4)
+            AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/placement/availability-zone)
 
-          # --- Step 3: Create the web application HTML ---
-          cat > /var/www/html/index.html << 'HTMLEOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Auto Scaling Demo</title>
-            <style>
-              * { margin: 0; padding: 0; box-sizing: border-box; }
-              body {
-                font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 20px;
-                color: #e0e0e0;
-              }
-              .card {
-                background: rgba(255,255,255,0.05);
-                backdrop-filter: blur(10px);
-                border: 1px solid rgba(255,255,255,0.1);
-                border-radius: 16px;
-                padding: 40px;
-                max-width: 540px;
-                width: 100%;
-              }
-              h1 {
-                font-size: 26px;
-                color: #fff;
-                margin-bottom: 6px;
-              }
-              .subtitle {
-                color: #aaa;
-                margin-bottom: 28px;
-                font-size: 14px;
-              }
-              .info-grid {
-                display: grid;
-                gap: 10px;
-                margin-bottom: 28px;
-              }
-              .info-item {
-                background: rgba(255,255,255,0.06);
-                border: 1px solid rgba(255,255,255,0.08);
-                border-radius: 10px;
-                padding: 14px 18px;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-              }
-              .info-item .label {
-                color: #999;
-                font-size: 13px;
-                font-weight: 500;
-              }
-              .info-item .value {
-                color: #7ec8e3;
-                font-weight: 600;
-                font-family: 'Courier New', monospace;
-                font-size: 14px;
-              }
-              .stress-btn {
-                width: 100%;
-                padding: 14px;
-                border: none;
-                border-radius: 10px;
-                background: #e74c3c;
-                color: white;
-                font-size: 16px;
-                font-weight: 600;
-                cursor: pointer;
-                transition: all 0.3s ease;
-                letter-spacing: 0.5px;
-              }
-              .stress-btn:hover {
-                background: #c0392b;
-                transform: translateY(-2px);
-                box-shadow: 0 4px 15px rgba(231,76,60,0.4);
-              }
-              .stress-btn:disabled {
-                background: #555;
-                cursor: not-allowed;
-                transform: none;
-                box-shadow: none;
-              }
-              .stress-btn.running {
-                background: #e67e22;
-                animation: pulse 2s infinite;
-              }
-              @keyframes pulse {
-                0%, 100% { box-shadow: 0 0 0 0 rgba(230,126,34,0.4); }
-                50% { box-shadow: 0 0 0 10px rgba(230,126,34,0); }
-              }
-              .status {
-                text-align: center;
-                margin-top: 14px;
-                font-size: 13px;
-                color: #999;
-                min-height: 20px;
-              }
-              .divider {
-                border: none;
-                border-top: 1px solid rgba(255,255,255,0.08);
-                margin: 20px 0;
-              }
-              .refresh-note {
-                text-align: center;
-                font-size: 12px;
-                color: #666;
-                line-height: 1.5;
-              }
-              .highlight { color: #7ec8e3; }
-            </style>
-          </head>
-          <body>
-            <div class="card">
-              <h1>&#9889; Auto Scaling Demo</h1>
-              <p class="subtitle">Served by an EC2 instance behind an Application Load Balancer</p>
+            # --- Step 3: Create the web application HTML ---
+            cat > /var/www/html/index.html << 'HTMLEOF'
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>Auto Scaling Demo</title>
+              <style>
+                * { margin: 0; padding: 0; box-sizing: border-box; }
+                body {
+                  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+                  min-height: 100vh;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  padding: 20px;
+                  color: #e0e0e0;
+                }
+                .card {
+                  background: rgba(255,255,255,0.05);
+                  backdrop-filter: blur(10px);
+                  border: 1px solid rgba(255,255,255,0.1);
+                  border-radius: 16px;
+                  padding: 40px;
+                  max-width: 540px;
+                  width: 100%;
+                }
+                h1 {
+                  font-size: 26px;
+                  color: #fff;
+                  margin-bottom: 6px;
+                }
+                .subtitle {
+                  color: #aaa;
+                  margin-bottom: 28px;
+                  font-size: 14px;
+                }
+                .info-grid {
+                  display: grid;
+                  gap: 10px;
+                  margin-bottom: 28px;
+                }
+                .info-item {
+                  background: rgba(255,255,255,0.06);
+                  border: 1px solid rgba(255,255,255,0.08);
+                  border-radius: 10px;
+                  padding: 14px 18px;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+                }
+                .info-item .label {
+                  color: #999;
+                  font-size: 13px;
+                  font-weight: 500;
+                }
+                .info-item .value {
+                  color: #7ec8e3;
+                  font-weight: 600;
+                  font-family: 'Courier New', monospace;
+                  font-size: 14px;
+                }
+                .stress-btn {
+                  width: 100%;
+                  padding: 14px;
+                  border: none;
+                  border-radius: 10px;
+                  background: #e74c3c;
+                  color: white;
+                  font-size: 16px;
+                  font-weight: 600;
+                  cursor: pointer;
+                  transition: all 0.3s ease;
+                  letter-spacing: 0.5px;
+                }
+                .stress-btn:hover {
+                  background: #c0392b;
+                  transform: translateY(-2px);
+                  box-shadow: 0 4px 15px rgba(231,76,60,0.4);
+                }
+                .stress-btn:disabled {
+                  background: #555;
+                  cursor: not-allowed;
+                  transform: none;
+                  box-shadow: none;
+                }
+                .stress-btn.running {
+                  background: #e67e22;
+                  animation: pulse 2s infinite;
+                }
+                @keyframes pulse {
+                  0%, 100% { box-shadow: 0 0 0 0 rgba(230,126,34,0.4); }
+                  50% { box-shadow: 0 0 0 10px rgba(230,126,34,0); }
+                }
+                .status {
+                  text-align: center;
+                  margin-top: 14px;
+                  font-size: 13px;
+                  color: #999;
+                  min-height: 20px;
+                }
+                .divider {
+                  border: none;
+                  border-top: 1px solid rgba(255,255,255,0.08);
+                  margin: 20px 0;
+                }
+                .refresh-note {
+                  text-align: center;
+                  font-size: 12px;
+                  color: #666;
+                  line-height: 1.5;
+                }
+                .highlight { color: #7ec8e3; }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <h1>&#9889; Auto Scaling Demo</h1>
+                <p class="subtitle">Served by an EC2 instance behind an Application Load Balancer</p>
 
-              <div class="info-grid">
-                <div class="info-item">
-                  <span class="label">Instance ID</span>
-                  <span class="value">INSTANCE_ID_PLACEHOLDER</span>
+                <div class="info-grid">
+                  <div class="info-item">
+                    <span class="label">Instance ID</span>
+                    <span class="value">INSTANCE_ID_PLACEHOLDER</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="label">Private IP</span>
+                    <span class="value">PRIVATE_IP_PLACEHOLDER</span>
+                  </div>
+                  <div class="info-item">
+                    <span class="label">Availability Zone</span>
+                    <span class="value">AZ_PLACEHOLDER</span>
+                  </div>
                 </div>
-                <div class="info-item">
-                  <span class="label">Private IP</span>
-                  <span class="value">PRIVATE_IP_PLACEHOLDER</span>
-                </div>
-                <div class="info-item">
-                  <span class="label">Availability Zone</span>
-                  <span class="value">AZ_PLACEHOLDER</span>
-                </div>
+
+                <button class="stress-btn" id="stressBtn" onclick="triggerStress()">
+                  &#128293; Trigger CPU Stress Test
+                </button>
+                <p class="status" id="status"></p>
+
+                <hr class="divider">
+                <p class="refresh-note">
+                  <span class="highlight">Tip:</span> Refresh this page multiple times.<br>
+                  If the <span class="highlight">Instance ID changes</span>, the ALB is
+                  distributing traffic across multiple instances.
+                </p>
               </div>
 
-              <button class="stress-btn" id="stressBtn" onclick="triggerStress()">
-                &#128293; Trigger CPU Stress Test
-              </button>
-              <p class="status" id="status"></p>
+              <script>
+                function triggerStress() {
+                  var btn = document.getElementById('stressBtn');
+                  var status = document.getElementById('status');
 
-              <hr class="divider">
-              <p class="refresh-note">
-                <span class="highlight">Tip:</span> Refresh this page multiple times.<br>
-                If the <span class="highlight">Instance ID changes</span>, the ALB is
-                distributing traffic across multiple instances.
-              </p>
-            </div>
+                  btn.disabled = true;
+                  btn.classList.add('running');
+                  btn.innerHTML = '&#9889; Stress Test Running...';
+                  status.textContent = 'Sending stress request to this instance...';
 
-            <script>
-              function triggerStress() {
-                var btn = document.getElementById('stressBtn');
-                var status = document.getElementById('status');
-
-                btn.disabled = true;
-                btn.classList.add('running');
-                btn.innerHTML = '&#9889; Stress Test Running...';
-                status.textContent = 'Sending stress request to this instance...';
-
-                fetch('/cgi-bin/stress.sh')
-                  .then(function(response) { return response.text(); })
-                  .then(function(data) {
-                    status.innerHTML = '&#9989; CPU stress active! CloudWatch will detect high CPU in ~2 min.<br>New instances should appear in ~3-5 min.';
-                    btn.innerHTML = '&#128293; Stress Test Active (5 min)';
-                    setTimeout(function() {
+                  fetch('/cgi-bin/stress.sh')
+                    .then(function(response) { return response.text(); })
+                    .then(function(data) {
+                      status.innerHTML = '&#9989; CPU stress active! CloudWatch will detect high CPU in ~2 min.<br>New instances should appear in ~3-5 min.';
+                      btn.innerHTML = '&#128293; Stress Test Active (5 min)';
+                      setTimeout(function() {
+                        btn.disabled = false;
+                        btn.classList.remove('running');
+                        btn.innerHTML = '&#128293; Trigger CPU Stress Test';
+                        status.textContent = 'Stress test completed.';
+                      }, 300000);
+                    })
+                    .catch(function(err) {
+                      status.textContent = 'Error: ' + err.message;
                       btn.disabled = false;
                       btn.classList.remove('running');
                       btn.innerHTML = '&#128293; Trigger CPU Stress Test';
-                      status.textContent = 'Stress test completed.';
-                    }, 300000);
-                  })
-                  .catch(function(err) {
-                    status.textContent = 'Error: ' + err.message;
-                    btn.disabled = false;
-                    btn.classList.remove('running');
-                    btn.innerHTML = '&#128293; Trigger CPU Stress Test';
-                  });
-              }
-            </script>
-          </body>
-          </html>
-          HTMLEOF
+                    });
+                }
+              </script>
+            </body>
+            </html>
+            HTMLEOF
 
-          # --- Step 4: Inject actual instance metadata into the HTML ---
-          sed -i "s/INSTANCE_ID_PLACEHOLDER/$INSTANCE_ID/g" /var/www/html/index.html
-          sed -i "s/PRIVATE_IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
-          sed -i "s/AZ_PLACEHOLDER/$AZ/g" /var/www/html/index.html
+            # --- Step 4: Inject actual instance metadata into the HTML ---
+            sed -i "s/INSTANCE_ID_PLACEHOLDER/$INSTANCE_ID/g" /var/www/html/index.html
+            sed -i "s/PRIVATE_IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
+            sed -i "s/AZ_PLACEHOLDER/$AZ/g" /var/www/html/index.html
 
-          # --- Step 5: Create CGI script for CPU stress trigger ---
-          # This is called when the user clicks the stress button.
-          # It runs 4 CPU-intensive processes for 300 seconds (5 minutes).
-          # This will push CPU utilization well above the 30% threshold.
-          cat > /var/www/cgi-bin/stress.sh << 'CGIEOF'
-          #!/bin/bash
-          echo "Content-Type: text/plain"
-          echo ""
-          echo "Starting CPU stress test..."
-          nohup stress --cpu 4 --timeout 300 > /dev/null 2>&1 &
-          echo "4 CPU workers started for 300 seconds."
-          CGIEOF
+            # --- Step 5: Create CGI script for CPU stress trigger ---
+            # This is called when the user clicks the stress button.
+            # It runs 4 CPU-intensive processes for 300 seconds (5 minutes).
+            # This will push CPU utilization well above the 30% threshold.
+            cat > /var/www/cgi-bin/stress.sh << 'CGIEOF'
+            #!/bin/bash
+            echo "Content-Type: text/plain"
+            echo ""
+            echo "Starting CPU stress test..."
+            nohup stress --cpu 4 --timeout 300 > /dev/null 2>&1 &
+            echo "4 CPU workers started for 300 seconds."
+            CGIEOF
 
-          chmod +x /var/www/cgi-bin/stress.sh
+            chmod +x /var/www/cgi-bin/stress.sh
 
-          # Restart Apache to pick up any config changes
-          systemctl restart httpd
+            # Restart Apache to pick up any config changes
+            systemctl restart httpd
 
   # ===========================================================================
   # SECTION 8: AUTO SCALING GROUP
@@ -646,9 +645,9 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      MinSize: '1'
-      DesiredCapacity: '1'
-      MaxSize: '4'
+      MinSize: "1"
+      DesiredCapacity: "1"
+      MaxSize: "4"
       VPCZoneIdentifier:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
@@ -689,7 +688,8 @@ Resources:
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ASGAverageCPUUtilization
-        TargetValue: 30
+        TargetValue: 30.0
+
   # ===========================================================================
   # OUTPUTS
   # ---------------------------------------------------------------------------
@@ -702,11 +702,11 @@ Outputs:
     Description: DNS name of the Application Load Balancer (use this to access the app)
     Value: !GetAtt ApplicationLoadBalancer.DNSName
     Export:
-      Name: !Sub ${AWS::StackName}-ALB-DNS
+      Name: !Sub "${AWS::StackName}-ALB-DNS"
 
   ALBEndpoint:
     Description: Full URL to access the web application
-    Value: !Sub http://${ApplicationLoadBalancer.DNSName}
+    Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
 
   VPCId:
     Description: VPC ID for reference
@@ -715,3 +715,4 @@ Outputs:
   AutoScalingGroupName:
     Description: Name of the Auto Scaling Group
     Value: !Ref AutoScalingGroup
+
