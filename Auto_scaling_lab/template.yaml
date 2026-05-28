@@ -10,16 +10,15 @@ Description: >
 # =============================================================================
 Parameters:
   LatestAmiId:
-    Description: Latest Amazon Linux 2 AMI (auto-resolved from SSM Parameter Store)
-    Type: "AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>"
-    Default: "/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2"
+    Description: Amazon Linux 2 AMI ID for eu-west-1
+    Type: String
+    Default: "ami-06422669907866d20"
 
   InstanceType:
     Description: EC2 instance type for the web servers
     Type: String
-    Default: t2.micro
+    Default: t3.micro
     AllowedValues:
-      - t2.micro
       - t3.micro
       - t3.small
 
@@ -367,11 +366,6 @@ Resources:
             AssociatePublicIpAddress: false
             Groups:
               - !Ref EC2SecurityGroup
-        TagSpecifications:
-          - ResourceType: instance
-            Tags:
-              - Key: Name
-                Value: AutoScale-WebServer
         UserData:
           Fn::Base64: |
             #!/bin/bash -xe
