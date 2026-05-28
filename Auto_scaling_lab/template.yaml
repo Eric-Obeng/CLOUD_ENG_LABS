@@ -376,13 +376,9 @@ Resources:
 
             # --- Step 1: Install packages ---
             # httpd = Apache web server
-            # We install stress via amazon-linux-extras EPEL repo
+            # stress-ng = CPU load generator (available in AL2023 default repos)
             yum update -y
-            yum install -y httpd
-
-            # Install stress tool for CPU load generation
-            amazon-linux-extras install epel -y
-            yum install -y stress
+            yum install -y httpd stress-ng
 
             # Start and enable Apache so it survives reboots
             systemctl start httpd
@@ -590,7 +586,17 @@ Resources:
             sed -i "s/PRIVATE_IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
             sed -i "s/AZ_PLACEHOLDER/$AZ/g" /var/www/html/index.html
 
-            # --- Step 5: Create CGI script for CPU stress trigger ---
+            # --- Step 5: Enable CGI execution in Apache ---
+            # Apache on AL2023 does not enable ExecCGI by default.
+            # Without this config, clicking the stress button returns 403 Forbidden.
+            cat > /etc/httpd/conf.d/cgi-enable.conf << 'CGICONFEOF'
+            <Directory "/var/www/cgi-bin">
+                Options +ExecCGI
+                AddHandler cgi-script .sh
+            </Directory>
+            CGICONFEOF
+
+            # --- Step 6: Create CGI script for CPU stress trigger ---
             # This is called when the user clicks the stress button.
             # It runs 4 CPU-intensive processes for 300 seconds (5 minutes).
             # This will push CPU utilization well above the 30% threshold.
@@ -599,7 +605,7 @@ Resources:
             echo "Content-Type: text/plain"
             echo ""
             echo "Starting CPU stress test..."
-            nohup stress --cpu 4 --timeout 300 > /dev/null 2>&1 &
+            nohup stress-ng --cpu 4 --timeout 300 > /dev/null 2>&1 &
             echo "4 CPU workers started for 300 seconds."
             CGIEOF
 
