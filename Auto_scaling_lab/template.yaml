@@ -378,7 +378,14 @@ Resources:
             # httpd = Apache web server
             # stress-ng = CPU load generator (available in AL2023 default repos)
             yum update -y
-            yum install -y httpd stress-ng
+            yum install -y httpd stress-ng policycoreutils-python-utils
+
+            # Allow Apache to execute CGI scripts and external programs
+            # AL2023 runs SELinux in enforcing mode by default, which blocks
+            # Apache from running programs like stress-ng via CGI.
+            setsebool -P httpd_execmem 1 || true
+            setsebool -P httpd_enable_cgi 1 || true
+            semanage permissive -a httpd_sys_script_t || true
 
             # Start and enable Apache so it survives reboots
             systemctl start httpd
@@ -593,6 +600,7 @@ Resources:
             <Directory "/var/www/cgi-bin">
                 Options +ExecCGI
                 AddHandler cgi-script .sh
+                Require all granted
             </Directory>
             CGICONFEOF
 
@@ -715,4 +723,3 @@ Outputs:
   AutoScalingGroupName:
     Description: Name of the Auto Scaling Group
     Value: !Ref AutoScalingGroup
-
