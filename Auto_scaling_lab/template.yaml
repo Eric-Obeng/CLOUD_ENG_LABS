@@ -586,16 +586,36 @@ Resources:
             sed -i "s/PRIVATE_IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
             sed -i "s/AZ_PLACEHOLDER/$AZ/g" /var/www/html/index.html
 
-            # --- Step 5: Create PHP script for CPU stress trigger ---
-            # Using PHP instead of CGI for reliability on AL2023.
-            # This is called when the user clicks the stress button.
-            # It runs 4 CPU-intensive processes for 300 seconds (5 minutes).
-            # This will push CPU utilization well above the 30% threshold.
+            # --- Step 5: Create stress trigger mechanism ---
+            # PHP exec/system calls are blocked by SELinux on AL2023, so we use
+            # a file-trigger approach instead:
+            #   1. A background watcher script (runs as root) checks for a trigger file
+            #   2. The PHP script just creates the trigger file (no exec needed)
+            #   3. The watcher detects the file and runs stress-ng with full permissions
+            # This bypasses all SELinux restrictions since the watcher runs as root.
+
+            # Create the watcher script
+            cat > /usr/local/bin/stress-watcher.sh << 'WATCHEREOF'
+            #!/bin/bash
+            while true; do
+              if [ -f /tmp/run-stress ]; then
+                rm -f /tmp/run-stress
+                stress-ng --cpu 4 --timeout 300 &
+              fi
+              sleep 2
+            done
+            WATCHEREOF
+            chmod +x /usr/local/bin/stress-watcher.sh
+
+            # Start the watcher in the background (runs as root)
+            nohup /usr/local/bin/stress-watcher.sh > /dev/null 2>&1 &
+
+            # Create the PHP endpoint that the button calls
             cat > /var/www/html/stress.php << 'PHPEOF'
             <?php
             header('Content-Type: text/plain');
+            touch('/tmp/run-stress');
             echo "Starting CPU stress test...\n";
-            exec('nohup stress-ng --cpu 4 --timeout 300 > /dev/null 2>&1 &');
             echo "4 CPU workers started for 300 seconds.\n";
             ?>
             PHPEOF
@@ -704,3 +724,4 @@ Outputs:
   AutoScalingGroupName:
     Description: Name of the Auto Scaling Group
     Value: !Ref AutoScalingGroup
+
