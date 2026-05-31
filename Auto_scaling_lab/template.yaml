@@ -347,7 +347,7 @@ Resources:
   #      2. Installs the 'stress' tool for CPU stress testing
   #      3. Fetches instance metadata (ID, IP, AZ) using IMDSv2
   #      4. Creates an HTML page that displays instance info
-  #      5. Creates a CGI script that triggers CPU stress on button click
+  #      5. Creates a PHP script that triggers CPU stress on button click
   #
   #      IMDSv2 (Instance Metadata Service v2) requires a token — this is
   #      the secure way to fetch metadata. The old way (IMDSv1) is being
@@ -378,14 +378,7 @@ Resources:
             # httpd = Apache web server
             # stress-ng = CPU load generator (available in AL2023 default repos)
             yum update -y
-            yum install -y httpd stress-ng policycoreutils-python-utils
-
-            # Allow Apache to execute CGI scripts and external programs
-            # AL2023 runs SELinux in enforcing mode by default, which blocks
-            # Apache from running programs like stress-ng via CGI.
-            setsebool -P httpd_execmem 1 || true
-            setsebool -P httpd_enable_cgi 1 || true
-            semanage permissive -a httpd_sys_script_t || true
+            yum install -y httpd stress-ng php
 
             # Start and enable Apache so it survives reboots
             systemctl start httpd
@@ -564,7 +557,7 @@ Resources:
                   btn.innerHTML = '&#9889; Stress Test Running...';
                   status.textContent = 'Sending stress request to this instance...';
 
-                  fetch('/cgi-bin/stress.sh')
+                  fetch('/stress.php')
                     .then(function(response) { return response.text(); })
                     .then(function(data) {
                       status.innerHTML = '&#9989; CPU stress active! CloudWatch will detect high CPU in ~2 min.<br>New instances should appear in ~3-5 min.';
@@ -593,31 +586,19 @@ Resources:
             sed -i "s/PRIVATE_IP_PLACEHOLDER/$PRIVATE_IP/g" /var/www/html/index.html
             sed -i "s/AZ_PLACEHOLDER/$AZ/g" /var/www/html/index.html
 
-            # --- Step 5: Enable CGI execution in Apache ---
-            # Apache on AL2023 does not enable ExecCGI by default.
-            # Without this config, clicking the stress button returns 403 Forbidden.
-            cat > /etc/httpd/conf.d/cgi-enable.conf << 'CGICONFEOF'
-            <Directory "/var/www/cgi-bin">
-                Options +ExecCGI
-                AddHandler cgi-script .sh
-                Require all granted
-            </Directory>
-            CGICONFEOF
-
-            # --- Step 6: Create CGI script for CPU stress trigger ---
+            # --- Step 5: Create PHP script for CPU stress trigger ---
+            # Using PHP instead of CGI for reliability on AL2023.
             # This is called when the user clicks the stress button.
             # It runs 4 CPU-intensive processes for 300 seconds (5 minutes).
             # This will push CPU utilization well above the 30% threshold.
-            cat > /var/www/cgi-bin/stress.sh << 'CGIEOF'
-            #!/bin/bash
-            echo "Content-Type: text/plain"
-            echo ""
-            echo "Starting CPU stress test..."
-            nohup stress-ng --cpu 4 --timeout 300 > /dev/null 2>&1 &
-            echo "4 CPU workers started for 300 seconds."
-            CGIEOF
-
-            chmod +x /var/www/cgi-bin/stress.sh
+            cat > /var/www/html/stress.php << 'PHPEOF'
+            <?php
+            header('Content-Type: text/plain');
+            echo "Starting CPU stress test...\n";
+            exec('nohup stress-ng --cpu 4 --timeout 300 > /dev/null 2>&1 &');
+            echo "4 CPU workers started for 300 seconds.\n";
+            ?>
+            PHPEOF
 
             # Restart Apache to pick up any config changes
             systemctl restart httpd
