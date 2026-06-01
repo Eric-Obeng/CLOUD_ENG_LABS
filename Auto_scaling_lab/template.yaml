@@ -592,14 +592,19 @@ Resources:
             #   1. A background watcher script (runs as root) checks for a trigger file
             #   2. The PHP script just creates the trigger file (no exec needed)
             #   3. The watcher detects the file and runs stress-ng with full permissions
-            # This bypasses all SELinux restrictions since the watcher runs as root.
+
+            # Create a writable directory for the trigger file
+            mkdir -p /var/www/html/trigger
+            chown apache:apache /var/www/html/trigger
+            # Set SELinux context so Apache/PHP can write here
+            chcon -t httpd_sys_rw_content_t /var/www/html/trigger
 
             # Create the watcher script
             cat > /usr/local/bin/stress-watcher.sh << 'WATCHEREOF'
             #!/bin/bash
             while true; do
-              if [ -f /tmp/run-stress ]; then
-                rm -f /tmp/run-stress
+              if [ -f /var/www/html/trigger/run-stress ]; then
+                rm -f /var/www/html/trigger/run-stress
                 stress-ng --cpu 4 --timeout 300 &
               fi
               sleep 2
@@ -614,7 +619,7 @@ Resources:
             cat > /var/www/html/stress.php << 'PHPEOF'
             <?php
             header('Content-Type: text/plain');
-            touch('/tmp/run-stress');
+            touch('/var/www/html/trigger/run-stress');
             echo "Starting CPU stress test...\n";
             echo "4 CPU workers started for 300 seconds.\n";
             ?>
@@ -724,4 +729,3 @@ Outputs:
   AutoScalingGroupName:
     Description: Name of the Auto Scaling Group
     Value: !Ref AutoScalingGroup
-
