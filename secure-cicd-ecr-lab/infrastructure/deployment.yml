@@ -1,2 +1,3 @@
 template-file-path: secure-cicd-ecr-lab/infrastructure/ecr.yml
 parameters: {}
+tags: {}
