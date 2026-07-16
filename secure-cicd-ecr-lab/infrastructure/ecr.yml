@@ -1,25 +1,17 @@
 AWSTemplateFormatVersion: "2010-09-09"
 
 Description: >
-  Creates the private Amazon ECR repository used by the secure CI/CD
-  pipeline lab.
-
-Parameters:
-  RepositoryName:
-    Type: String
-    Default: secure-cicd-ecr-lab
-    Description: Name of the private Amazon ECR repository.
+  Creates and manages the private Amazon ECR repository used by the
+  secure CI/CD pipeline lab.
 
 Resources:
   ApplicationRepository:
     Type: AWS::ECR::Repository
-
     DeletionPolicy: Retain
     UpdateReplacePolicy: Retain
 
     Properties:
       RepositoryName: secure-cicd-ecr-lab
-
       ImageTagMutability: MUTABLE
 
       ImageScanningConfiguration:
@@ -50,14 +42,11 @@ Resources:
 
       Tags:
         - Key: Name
-          Value: !Ref RepositoryName
-
+          Value: secure-cicd-ecr-lab
         - Key: Project
           Value: Secure-CICD-ECR-Lab
-
         - Key: ManagedBy
           Value: CloudFormation
-
         - Key: Environment
           Value: Lab
 
