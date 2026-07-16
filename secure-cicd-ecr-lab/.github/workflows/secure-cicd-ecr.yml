@@ -4,9 +4,11 @@ on:
     push:
         branches:
             - main
-        paths:
-            - "secure-cicd-ecr-lab/**"
-            - ".github/workflows/secure-cicd-ecr.yml"
+
+    workflow_dispatch:
+        # paths:
+        #     - "secure-cicd-ecr-lab/**"
+        #     - ".github/workflows/secure-cicd-ecr.yml"
 
 permissions:
     contents: read
