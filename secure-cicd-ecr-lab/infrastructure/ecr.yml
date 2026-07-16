@@ -49,16 +49,3 @@ Resources:
           Value: CloudFormation
         - Key: Environment
           Value: Lab
-
-Outputs:
-  RepositoryName:
-    Description: Name of the ECR repository.
-    Value: !Ref ApplicationRepository
-
-  RepositoryArn:
-    Description: ARN of the ECR repository.
-    Value: !GetAtt ApplicationRepository.Arn
-
-  RepositoryUri:
-    Description: URI used to push and pull images.
-    Value: !GetAtt ApplicationRepository.RepositoryUri
