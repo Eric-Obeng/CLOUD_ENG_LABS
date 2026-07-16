@@ -49,3 +49,16 @@ Resources:
           Value: CloudFormation
         - Key: Environment
           Value: Lab
+
+Outputs:
+  RepositoryName:
+    Description: Name of the private ECR repository
+    Value: !Ref ApplicationRepository
+
+  RepositoryArn:
+    Description: ARN of the private ECR repository
+    Value: !GetAtt ApplicationRepository.Arn
+
+  RepositoryUri:
+    Description: URI used to tag, push, and pull container images
+    Value: !GetAtt ApplicationRepository.RepositoryUri
