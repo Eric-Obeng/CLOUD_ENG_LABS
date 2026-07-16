@@ -18,7 +18,7 @@ Resources:
     UpdateReplacePolicy: Retain
 
     Properties:
-      RepositoryName: !Ref RepositoryName
+      RepositoryName: secure-cicd-ecr-lab
 
       ImageTagMutability: MUTABLE
 
