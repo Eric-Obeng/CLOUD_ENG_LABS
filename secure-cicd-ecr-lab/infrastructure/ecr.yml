@@ -1,0 +1,75 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: >
+  Creates the private Amazon ECR repository used by the secure CI/CD
+  pipeline lab.
+
+Parameters:
+  RepositoryName:
+    Type: String
+    Default: secure-cicd-ecr-lab
+    Description: Name of the private Amazon ECR repository.
+
+Resources:
+  ApplicationRepository:
+    Type: AWS::ECR::Repository
+
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+
+    Properties:
+      RepositoryName: !Ref RepositoryName
+
+      ImageTagMutability: MUTABLE
+
+      ImageScanningConfiguration:
+        ScanOnPush: true
+
+      EncryptionConfiguration:
+        EncryptionType: AES256
+
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged images after 7 days",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 7
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+
+      Tags:
+        - Key: Name
+          Value: !Ref RepositoryName
+
+        - Key: Project
+          Value: Secure-CICD-ECR-Lab
+
+        - Key: ManagedBy
+          Value: CloudFormation
+
+        - Key: Environment
+          Value: Lab
+
+Outputs:
+  RepositoryName:
+    Description: Name of the ECR repository.
+    Value: !Ref ApplicationRepository
+
+  RepositoryArn:
+    Description: ARN of the ECR repository.
+    Value: !GetAtt ApplicationRepository.Arn
+
+  RepositoryUri:
+    Description: URI used to push and pull images.
+    Value: !GetAtt ApplicationRepository.RepositoryUri
