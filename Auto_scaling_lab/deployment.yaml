@@ -1,3 +1,6 @@
 template-file-path: Auto_scaling_lab/template.yaml
-parameters: {}
+parameters:
+  VpcCidr: 10.0.0.0/16
+  LatestAmiId: ami-06422669907866d20
+  InstanceType: t3.micro
 tags: {}
