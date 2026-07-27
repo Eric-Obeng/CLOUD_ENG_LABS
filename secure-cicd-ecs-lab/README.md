@@ -4,6 +4,11 @@
 **Lab:** Secure CI/CD ECS Lab
 **Region:** eu-central-1
 
+## Live Link
+
+- ALB endpoint (live app): [secure-cicd-ecs-lab-alb-1359260862.eu-central-1.elb.amazonaws.com](http://secure-cicd-ecs-lab-alb-1359260862.eu-central-1.elb.amazonaws.com)
+  (also available as the `secure-cicd-alb` stack's `AlbDnsName` output)
+
 ## Architecture
 
 ![Architecture Diagram](./architecture-diagram.png)
@@ -136,12 +141,145 @@ above) - the deployment mechanism's permissions and the running
 application's permissions are two different trust boundaries, and only the
 former was relaxed here, for sandbox-practicality reasons.
 
-## Deliverables
+## Teardown (avoid ongoing charges)
+
+The main cost drivers are the ALB (hourly), the running Fargate task
+(hourly), and the 3 VPC Interface Endpoints (each billed hourly). To tear
+everything down cleanly, delete stacks in **reverse** of the deploy order,
+since stacks reference each other via `Fn::ImportValue`/`Export` and
+CloudFormation refuses to delete a stack whose export is still in use.
+
+Two resources must be emptied manually before their owning stack can be
+deleted (CloudFormation won't delete a non-empty S3 bucket or ECR repo):
+
+```bash
+# Empty the pipeline artifact bucket before deleting secure-cicd-pipeline
+aws s3 rm s3://secure-cicd-ecs-lab-pipeline-artifacts-288761743924 --recursive
+
+# Empty the ECR repo before deleting secure-cicd-ecr
+aws ecr batch-delete-image \
+  --repository-name secure-cicd-ecs-lab-app \
+  --region eu-central-1 \
+  --image-ids "$(aws ecr list-images --repository-name secure-cicd-ecs-lab-app --region eu-central-1 --query 'imageIds' --output json)"
+```
+
+Delete stacks in this order, waiting for each to fully finish before
+starting the next:
+
+```bash
+aws cloudformation delete-stack --stack-name secure-cicd-eventbridge --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-eventbridge --region eu-central-1
+
+# (empty the artifact bucket here, see above)
+aws cloudformation delete-stack --stack-name secure-cicd-pipeline --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-pipeline --region eu-central-1
+
+aws cloudformation delete-stack --stack-name secure-cicd-codedeploy --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-codedeploy --region eu-central-1
+
+aws cloudformation delete-stack --stack-name secure-cicd-github-oidc --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-github-oidc --region eu-central-1
+
+aws cloudformation delete-stack --stack-name secure-cicd-ecs --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-ecs --region eu-central-1
+
+aws cloudformation delete-stack --stack-name secure-cicd-alb --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-alb --region eu-central-1
+
+# (empty the ECR repo here, see above)
+aws cloudformation delete-stack --stack-name secure-cicd-ecr --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-ecr --region eu-central-1
+
+aws cloudformation delete-stack --stack-name secure-cicd-security --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-security --region eu-central-1
+
+aws cloudformation delete-stack --stack-name secure-cicd-network --region eu-central-1
+aws cloudformation wait stack-delete-complete --stack-name secure-cicd-network --region eu-central-1
+```
+
+**What NOT to delete** (these cost nothing and are safe/useful to keep):
+
+- `CloudFormation-role` (IAM role used for Git sync)
+- The GitHub OIDC provider (`token.actions.githubusercontent.com`) - shared
+  across projects in this account, pre-existing before this lab
+- This GitHub repository
+
+## Bringing it back up
+
+Because ECR is emptied during teardown, the bootstrap step from the
+original build (manually pushing one image before ECS can start) is
+required again. Full sequence, in order:
+
+1. **Deploy the foundational stacks:**
+
+   ```bash
+   aws cloudformation deploy --template-file network.yaml --stack-name secure-cicd-network --region eu-central-1
+   aws cloudformation deploy --template-file security-groups.yaml --stack-name secure-cicd-security --region eu-central-1
+   aws cloudformation deploy --template-file ecr.yaml --stack-name secure-cicd-ecr --region eu-central-1
+   aws cloudformation deploy --template-file alb.yaml --stack-name secure-cicd-alb --region eu-central-1
+   ```
+
+2. **Bootstrap one image into ECR manually** (from `application/`):
+
+   ```bash
+   aws ecr get-login-password --region eu-central-1 | \
+     docker login --username AWS --password-stdin 288761743924.dkr.ecr.eu-central-1.amazonaws.com
+
+   docker build -t 288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecs-lab-app:latest .
+   docker push 288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecs-lab-app:latest
+   ```
+
+3. **Deploy ECS** (update the `ContainerImage` default in `ecs.yaml` to
+   match this fresh `:latest` push before deploying, or pass it explicitly
+   via `--parameter-overrides`):
+
+   ```bash
+   aws cloudformation deploy \
+     --template-file ecs.yaml \
+     --stack-name secure-cicd-ecs \
+     --region eu-central-1 \
+     --capabilities CAPABILITY_NAMED_IAM \
+     --parameter-overrides ContainerImage=288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecs-lab-app:latest
+   ```
+
+4. **Deploy the remaining CI/CD stacks:**
+
+   ```bash
+   aws cloudformation deploy --template-file github-oidc.yaml --stack-name secure-cicd-github-oidc --region eu-central-1 --capabilities CAPABILITY_NAMED_IAM
+   aws cloudformation deploy --template-file codedeploy.yaml --stack-name secure-cicd-codedeploy --region eu-central-1 --capabilities CAPABILITY_NAMED_IAM
+   aws cloudformation deploy --template-file pipeline.yaml --stack-name secure-cicd-pipeline --region eu-central-1 --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+5. **Re-upload the pipeline template bundle to the new S3 bucket** (a fresh
+   bucket means the old upload is gone):
+
+   ```bash
+   cd pipeline-templates
+   # zip appspec.yaml + taskdef.json into pipeline-templates.zip (see Task 6/7 notes)
+   aws s3 cp pipeline-templates.zip \
+     s3://secure-cicd-ecs-lab-pipeline-artifacts-288761743924/templates/pipeline-templates.zip \
+     --region eu-central-1
+   ```
+
+6. **Deploy EventBridge last:**
+
+   ```bash
+   aws cloudformation deploy --template-file eventbridge.yaml --stack-name secure-cicd-eventbridge --region eu-central-1 --capabilities CAPABILITY_NAMED_IAM
+   ```
+
+7. **Re-enable Git sync** on each stack (console: Stack -> Git sync ->
+   Enable, same `CloudFormation-role`, same template file paths as before -
+   the role and its permissions/trust policy persist through teardown since
+   IAM roles are untouched).
+
+8. **Trigger a real end-to-end test:** push a small change to
+   `application/`, confirm GitHub Actions builds and pushes a new image,
+   confirm EventBridge/CodePipeline/CodeDeploy runs a fresh blue/green
+   deployment automatically.
 
 - Infrastructure repo: this repository, `secure-cicd-ecs-lab/infrastructure/`
 - Application repo: this repository, `secure-cicd-ecs-lab/application/`
-- ALB endpoint (live app): [secure-cicd-ecs-lab-alb-1359260862.eu-central-1.elb.amazonaws.com](http://secure-cicd-ecs-lab-alb-1359260862.eu-central-1.elb.amazonaws.com)
-  (also available as the `secure-cicd-alb` stack's `AlbDnsName` output)
+- ALB endpoint: see CloudFormation stack `secure-cicd-alb` output `AlbDnsName`
 - Architecture diagram: `architecture-diagram.png` (generated via
   `architecture-diagram.py` using the Python `diagrams` library - diagram
   as code)
