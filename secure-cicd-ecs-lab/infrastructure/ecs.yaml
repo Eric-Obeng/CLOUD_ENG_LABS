@@ -21,7 +21,7 @@ Parameters:
   ContainerImage:
     Type: String
     Description: Full ECR image URI (repo:tag) to deploy initially.
-    Default: 288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecs-lab-app:latest
+    Default: 288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecs-lab-app:sha-d3b7c89
 
   TaskCpu:
     Type: String
