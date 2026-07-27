@@ -75,11 +75,40 @@ Resources:
           Value: !Sub ${LabName}-tg-blue
 
   # ============================================================
+  # TARGET GROUP ("green" - where CodeDeploy stands up the NEW task
+  # set during a blue/green deployment). Identical config to blue -
+  # CodeDeploy needs two equivalent target groups to shift traffic
+  # between. This one sits empty/unused until a deployment happens.
+  # ============================================================
+  GreenTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${LabName}-tg-green
+      VpcId: !ImportValue
+        Fn::Sub: ${LabName}-VpcId
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-tg-green
+
+  # ============================================================
   # LISTENER - the ALB's actual front door on port 80. Forwards
-  # all traffic to the blue target group by default. In Task 6,
-  # CodeDeploy will manage shifting this listener's traffic between
-  # blue and green target groups during a deployment - we won't
-  # need to touch this listener manually at that point.
+  # all traffic to the blue target group by default. CodeDeploy
+  # takes over managing THIS listener's target group during a
+  # deployment - flipping its DefaultActions from blue to green -
+  # we won't touch it manually once deployments start happening.
   # ============================================================
   HttpListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -90,6 +119,28 @@ Resources:
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref BlueTargetGroup
+
+  # ============================================================
+  # TEST LISTENER (port 8080) - CodeDeploy optionally uses a second
+  # "test" listener to let you validate the GREEN task set BEFORE
+  # it becomes the production traffic target. It always points at
+  # whichever target group is currently "green" during a deploy, so
+  # you (or an automated smoke test) can hit the ALB on :8080 and
+  # confirm the new version looks right before the real cutover on
+  # port 80 happens. Not internet-facing in practice unless someone
+  # knows to hit this port, but the SG still only allows it from
+  # 0.0.0.0/0 on 80 - we'll open 8080 too since ALB SG currently only
+  # allows 80 (see note below).
+  # ============================================================
+  TestListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 8080
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref GreenTargetGroup
 
 Outputs:
   AlbArn:
@@ -111,3 +162,13 @@ Outputs:
     Value: !Ref BlueTargetGroup
     Export:
       Name: !Sub ${LabName}-BlueTargetGroupArn
+
+  GreenTargetGroupArn:
+    Value: !Ref GreenTargetGroup
+    Export:
+      Name: !Sub ${LabName}-GreenTargetGroupArn
+
+  TestListenerArn:
+    Value: !Ref TestListener
+    Export:
+      Name: !Sub ${LabName}-TestListenerArn
