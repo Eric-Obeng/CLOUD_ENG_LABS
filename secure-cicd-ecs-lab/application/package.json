@@ -1,0 +1,12 @@
+{
+  "name": "secure-cicd-ecs-lab-app",
+  "version": "1.0.0",
+  "description": "Minimal Node/Express app for the secure-cicd-ecs-lab",
+  "main": "src/app.js",
+  "scripts": {
+    "start": "node src/app.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
