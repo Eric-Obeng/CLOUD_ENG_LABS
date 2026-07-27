@@ -1,0 +1,5 @@
+template-file-path: secure-cicd-ecs-lab/infrastructure/ecr.yaml
+parameters:
+  LabName: secure-cicd-ecs-lab
+  RepositoryName: secure-cicd-ecs-lab-app
+tags: {}
