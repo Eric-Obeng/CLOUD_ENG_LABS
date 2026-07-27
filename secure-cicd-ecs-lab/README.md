@@ -140,7 +140,8 @@ former was relaxed here, for sandbox-practicality reasons.
 
 - Infrastructure repo: this repository, `secure-cicd-ecs-lab/infrastructure/`
 - Application repo: this repository, `secure-cicd-ecs-lab/application/`
-- ALB endpoint: see CloudFormation stack `secure-cicd-alb` output `AlbDnsName`
+- ALB endpoint (live app): [secure-cicd-ecs-lab-alb-1359260862.eu-central-1.elb.amazonaws.com](http://secure-cicd-ecs-lab-alb-1359260862.eu-central-1.elb.amazonaws.com)
+  (also available as the `secure-cicd-alb` stack's `AlbDnsName` output)
 - Architecture diagram: `architecture-diagram.png` (generated via
   `architecture-diagram.py` using the Python `diagrams` library - diagram
   as code)
