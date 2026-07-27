@@ -2,6 +2,8 @@ AWSTemplateFormatVersion: "2010-09-09"
 Description: >
   Task 4b - ECS Fargate cluster, task definition, and service for secure-cicd-ecs-lab.
   Tasks run in private subnets, registered behind the ALB's blue target group.
+  Deployment controller set to CODE_DEPLOY (Task 7) so CodeDeploy manages
+  blue/green traffic shifting instead of ECS's default rolling update.
 
 Parameters:
   LabName:
@@ -144,10 +146,13 @@ Resources:
   # they have no public IP and no internet route (Task 1), reaching
   # ECR/Logs purely through VPC endpoints.
   #
-  # DeploymentController is left as the ECS default (rolling update)
-  # for now. In Task 6 we'll change this to CODE_DEPLOY so CodeDeploy
-  # can manage blue/green traffic shifting instead of ECS doing a
-  # standard rolling replacement.
+  # DeploymentController=CODE_DEPLOY hands deployment orchestration
+  # over to CodeDeploy entirely (Task 7). From this point on, actual
+  # task definition updates/rollouts happen via CodeDeploy blue/green
+  # task set swaps - NOT ECS's default rolling update, and NOT future
+  # CloudFormation stack updates to TaskDefinition/LoadBalancers on
+  # this resource (CodeDeploy becomes the source of truth for "what's
+  # actually running" once deployments start happening through it).
   # ============================================================
   EcsService:
     Type: AWS::ECS::Service
@@ -158,6 +163,8 @@ Resources:
       DesiredCount: 1
       LaunchType: FARGATE
       HealthCheckGracePeriodSeconds: 60
+      DeploymentController:
+        Type: CODE_DEPLOY
       NetworkConfiguration:
         AwsvpcConfiguration:
           AssignPublicIp: DISABLED
