@@ -1,0 +1,113 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 4a - Public Application Load Balancer for secure-cicd-ecs-lab.
+  Single target group for now; a second (green) target group is added
+  in Task 6 when we wire up CodeDeploy blue/green.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: secure-cicd-ecs-lab
+
+  ContainerPort:
+    Type: Number
+    Default: 3000
+
+Resources:
+  # ============================================================
+  # APPLICATION LOAD BALANCER - internet-facing, sits in the
+  # PUBLIC subnets (from Task 1) and uses the ALB security group
+  # (from Task 2) which only allows inbound HTTP/80 from anywhere.
+  # This is the single public entry point into the whole system -
+  # nothing else in this architecture is reachable from outside.
+  # ============================================================
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub ${LabName}-alb
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !ImportValue
+          Fn::Sub: ${LabName}-AlbSecurityGroupId
+      Subnets: !Split
+        - ","
+        - !ImportValue
+          Fn::Sub: ${LabName}-PublicSubnetIds
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-alb
+
+  # ============================================================
+  # TARGET GROUP ("blue" - the initial/current live target group).
+  # TargetType=ip is required for Fargate tasks (awsvpc network mode
+  # means tasks are registered by IP, not EC2 instance ID).
+  #
+  # HealthCheckPath "/" hits our Express app's root route, which will
+  # render the required "name + lab name" UI - so a passing health
+  # check also proves the actual app content is being served.
+  # ============================================================
+  BlueTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub ${LabName}-tg-blue
+      VpcId: !ImportValue
+        Fn::Sub: ${LabName}-VpcId
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      TargetType: ip
+      HealthCheckEnabled: true
+      HealthCheckPath: /
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      # Deregistration delay: how long the ALB waits before fully
+      # dropping a task from rotation after it's marked for removal
+      # (e.g. during a deployment). Lowered from the 300s default to
+      # speed up deployments/testing in this lab environment.
+      TargetGroupAttributes:
+        - Key: deregistration_delay.timeout_seconds
+          Value: "30"
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-tg-blue
+
+  # ============================================================
+  # LISTENER - the ALB's actual front door on port 80. Forwards
+  # all traffic to the blue target group by default. In Task 6,
+  # CodeDeploy will manage shifting this listener's traffic between
+  # blue and green target groups during a deployment - we won't
+  # need to touch this listener manually at that point.
+  # ============================================================
+  HttpListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref BlueTargetGroup
+
+Outputs:
+  AlbArn:
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: !Sub ${LabName}-AlbArn
+
+  AlbDnsName:
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub ${LabName}-AlbDnsName
+
+  HttpListenerArn:
+    Value: !Ref HttpListener
+    Export:
+      Name: !Sub ${LabName}-HttpListenerArn
+
+  BlueTargetGroupArn:
+    Value: !Ref BlueTargetGroup
+    Export:
+      Name: !Sub ${LabName}-BlueTargetGroupArn

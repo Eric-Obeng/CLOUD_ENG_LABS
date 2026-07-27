@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 2 - Security groups for secure-cicd-ecs-lab.
+  Least-privilege chain: Internet -> ALB SG -> ECS Task SG (by SG reference, not CIDR).
+
+Parameters:
+  LabName:
+    Type: String
+    Default: secure-cicd-ecs-lab
+
+  # The port our Node/Express container listens on. The ECS task SG
+  # only opens this single port, and only to traffic from the ALB SG.
+  ContainerPort:
+    Type: Number
+    Default: 3000
+
+Resources:
+  # ============================================================
+  # ALB SECURITY GROUP - attached to the public Application Load
+  # Balancer. This is the ONLY security group in the whole design
+  # that accepts traffic from the open internet (0.0.0.0/0), and
+  # it only accepts it on port 80. Everything downstream of the ALB
+  # trusts traffic based on "did it come from this SG", not on IP.
+  # ============================================================
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound HTTP from the internet to the ALB
+      VpcId: !ImportValue
+        Fn::Sub: ${LabName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Public HTTP access
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-alb-sg
+
+  # ============================================================
+  # ECS TASK SECURITY GROUP - attached to the Fargate tasks' ENIs
+  # (private subnets). Ingress source is the ALB security group
+  # ITSELF (SourceSecurityGroupId), not a CIDR range. This means
+  # only traffic actually passing through the ALB can ever reach
+  # the container - not other resources in the VPC, not the
+  # internet directly, nothing else. This is the least-privilege
+  # requirement from the rubric, enforced at the network layer.
+  #
+  # Egress is left open (default "allow all") so tasks can reach
+  # the VPC Interface Endpoints (ECR, Logs) over HTTPS. This could
+  # be tightened further to "only port 443 to VpcEndpointSecurityGroup"
+  # as an optional hardening step - see note at bottom of file.
+  # ============================================================
+  EcsTaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound traffic to ECS tasks only from the ALB
+      VpcId: !ImportValue
+        Fn::Sub: ${LabName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref ContainerPort
+          ToPort: !Ref ContainerPort
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+          Description: Allow traffic from the ALB only
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-ecs-task-sg
+
+Outputs:
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+    Export:
+      Name: !Sub ${LabName}-AlbSecurityGroupId
+
+  EcsTaskSecurityGroupId:
+    Value: !Ref EcsTaskSecurityGroup
+    Export:
+      Name: !Sub ${LabName}-EcsTaskSecurityGroupId

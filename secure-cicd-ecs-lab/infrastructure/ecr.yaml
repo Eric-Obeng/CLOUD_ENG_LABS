@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 3 - ECR repository for secure-cicd-ecs-lab.
+  Mutable tagging strategy (latest + git-sha), lifecycle policy, scan on push.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: secure-cicd-ecs-lab
+
+  RepositoryName:
+    Type: String
+    Default: secure-cicd-ecs-lab-app
+
+Resources:
+  # ============================================================
+  # ECR REPOSITORY - stores the built Node/Express container images.
+  #
+  # ImageTagMutability=MUTABLE: satisfies the lab's explicit
+  # requirement. This means a tag like "latest" can be re-pushed
+  # to point at a new image. We pair this with also always pushing
+  # a unique git-sha tag per build, so even though "latest" moves,
+  # every build remains individually addressable/rollback-able by
+  # its sha tag - giving us both convenience (latest) and precision
+  # (sha) without needing IMMUTABLE mode.
+  #
+  # ScanOnPush: free vulnerability scanning on every image push -
+  # good baseline security practice, no extra cost.
+  # ============================================================
+  EcrRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref RepositoryName
+      ImageTagMutability: MUTABLE
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      # Lifecycle policy: automatically clean up old images so the
+      # repo doesn't accumulate unlimited untagged/old layers over
+      # time (cost + hygiene). Keeps the last 10 tagged images and
+      # expires untagged images after 1 day.
+      LifecyclePolicy:
+        LifecyclePolicyText: !Sub |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Expire untagged images after 1 day",
+                "selection": {
+                  "tagStatus": "untagged",
+                  "countType": "sinceImagePushed",
+                  "countUnit": "days",
+                  "countNumber": 1
+                },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep only the last 10 tagged images",
+                "selection": {
+                  "tagStatus": "tagged",
+                  "tagPrefixList": ["sha-", "latest"],
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 10
+                },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-ecr
+        - Key: Lab
+          Value: !Ref LabName
+
+Outputs:
+  RepositoryUri:
+    Value: !GetAtt EcrRepository.RepositoryUri
+    Export:
+      Name: !Sub ${LabName}-EcrRepositoryUri
+
+  RepositoryArn:
+    Value: !GetAtt EcrRepository.Arn
+    Export:
+      Name: !Sub ${LabName}-EcrRepositoryArn
+
+  RepositoryName:
+    Value: !Ref EcrRepository
+    Export:
+      Name: !Sub ${LabName}-EcrRepositoryName

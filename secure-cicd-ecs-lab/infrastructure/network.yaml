@@ -1,0 +1,315 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 1 - Networking layer for secure-cicd-ecs-lab.
+  Multi-AZ VPC with public subnets (ALB) and private subnets (ECS Fargate),
+  no NAT Gateway - private subnets reach ECR/CloudWatch Logs via VPC Endpoints only.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: secure-cicd-ecs-lab
+
+  # Overall VPC address range. /16 gives us 65,536 IPs - way more than we need,
+  # but leaves room to add more subnets/AZs later without redesigning.
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  # Public subnets only need to hold ALB ENIs, so /24 (256 IPs) is plenty.
+  PublicSubnetACidr:
+    Type: String
+    Default: 10.0.0.0/24
+
+  PublicSubnetBCidr:
+    Type: String
+    Default: 10.0.1.0/24
+
+  # Private subnets hold ECS Fargate tasks (and their ENIs) - kept separate
+  # from the public range (10.0.10.x vs 10.0.0.x) so it's visually obvious
+  # which block is which when reading route tables/SGs later.
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.0.10.0/24
+
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.0.11.0/24
+
+Resources:
+  # ============================================================
+  # VPC - the isolated network container for everything else.
+  # DNS support/hostnames must be enabled for VPC Interface
+  # Endpoints' private DNS resolution to work later.
+  # ============================================================
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-vpc
+        - Key: Lab
+          Value: !Ref LabName
+
+  # ============================================================
+  # Internet Gateway - the VPC's only doorway to/from the public
+  # internet. On its own it does nothing until a route table
+  # points traffic at it (see PublicDefaultRoute below).
+  # ============================================================
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-igw
+
+  # Attaches the IGW to our VPC - without this the IGW just exists
+  # unconnected and does nothing.
+  VpcGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # ============================================================
+  # PUBLIC SUBNETS - one per AZ, for Multi-AZ high availability.
+  # These will host the Application Load Balancer's ENIs.
+  # MapPublicIpOnLaunch=true means anything launched here auto-gets
+  # a public IP (relevant for the ALB, not for our Fargate tasks).
+  # ============================================================
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-public-a
+
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PublicSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-public-b
+
+  # ============================================================
+  # PRIVATE SUBNETS - one per AZ, where ECS Fargate tasks actually
+  # run. No public IPs, and (as configured below) no internet
+  # route at all - tasks reach AWS services only via VPC Endpoints.
+  # This is the core "tasks are private" requirement of the lab.
+  # ============================================================
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-private-a
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-private-b
+
+  # ============================================================
+  # PUBLIC ROUTE TABLE - sends all outbound traffic (0.0.0.0/0)
+  # from the public subnets to the Internet Gateway. This is what
+  # lets the ALB be reachable from (and reach out to) the internet.
+  # ============================================================
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-public-rt
+
+  # The actual "0.0.0.0/0 -> IGW" rule. DependsOn the gateway
+  # attachment because the route is invalid until the IGW is
+  # actually attached to the VPC.
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: VpcGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  # Associates each public subnet with the public route table above.
+  # Without this association, a subnet just uses the VPC's default
+  # (local-only) route table and stays unreachable from outside.
+  PublicSubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+
+  # ============================================================
+  # PRIVATE ROUTE TABLE - deliberately has NO internet route.
+  # Traffic within the VPC still works (local route is implicit),
+  # and the S3 Gateway Endpoint route gets added directly to this
+  # table below. This is what makes the private subnets truly
+  # isolated from the public internet.
+  # ============================================================
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-private-rt
+
+  PrivateSubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ============================================================
+  # Security group shared by all VPC Interface Endpoints (ECR API,
+  # ECR Docker, CloudWatch Logs). Interface endpoints are ENIs with
+  # their own SG, so we only allow HTTPS (443) from inside our own
+  # VPC CIDR - nothing external can ever reach these endpoints.
+  # ============================================================
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTPS from within the VPC to interface endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-vpce-sg
+
+  # ============================================================
+  # S3 GATEWAY ENDPOINT (free - no hourly/data charge, unlike
+  # Interface endpoints). Works as a route table entry, not an ENI.
+  # Required because ECR stores actual image LAYERS in S3 under
+  # the hood - pulling an image means fetching layers from S3 too.
+  # ============================================================
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+
+  # ============================================================
+  # ECR API INTERFACE ENDPOINT - handles ECR control-plane calls
+  # (e.g. GetAuthorizationToken, DescribeImages). Creates private
+  # ENIs in our private subnets; PrivateDnsEnabled means the normal
+  # ECR DNS name resolves to this private IP automatically, so no
+  # app/task config changes are needed.
+  # ============================================================
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.api
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+  # ============================================================
+  # ECR DOCKER INTERFACE ENDPOINT - handles the actual image
+  # layer pull/push (docker pull/push protocol), as distinct
+  # from the ECR API endpoint above which handles metadata calls.
+  # Fargate needs BOTH to successfully start a task from an ECR image.
+  # ============================================================
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ecr.dkr
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+  # ============================================================
+  # CLOUDWATCH LOGS INTERFACE ENDPOINT - lets Fargate tasks ship
+  # container stdout/stderr to CloudWatch Logs without needing
+  # internet access. Required for the "ECS logs visible in
+  # CloudWatch Logs" rubric item to work with no NAT Gateway.
+  # ============================================================
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.logs
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+# ============================================================
+# Outputs - exported so later stacks (security groups, ECS, ALB)
+# can import these values with Fn::ImportValue instead of us
+# hardcoding IDs or passing endless parameters between stacks.
+# ============================================================
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub ${LabName}-VpcId
+
+  PublicSubnetIds:
+    Value: !Join [",", [!Ref PublicSubnetA, !Ref PublicSubnetB]]
+    Export:
+      Name: !Sub ${LabName}-PublicSubnetIds
+
+  PrivateSubnetIds:
+    Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export:
+      Name: !Sub ${LabName}-PrivateSubnetIds
+
+  VpcCidrOutput:
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub ${LabName}-VpcCidr
