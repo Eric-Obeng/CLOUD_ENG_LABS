@@ -1,3 +1,5 @@
 template-file-path: secure-cicd-ecs-lab/infrastructure/security-groups.yaml
-parameters: {}
+parameters:
+  LabName: secure-cicd-ecs-lab
+  ContainerPort: '3000'
 tags: {}
