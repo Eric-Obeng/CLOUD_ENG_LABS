@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 7c - EventBridge rule: detects new image pushes to ECR and starts
+  the CodePipeline execution automatically. This is what makes the whole
+  pipeline "triggered by container image updates" rather than manual.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: secure-cicd-ecs-lab
+
+Resources:
+  # ============================================================
+  # EVENTBRIDGE INVOCATION ROLE - the role EventBridge assumes to
+  # call codepipeline:StartPipelineExecution on our behalf. Scoped
+  # to exactly one action on exactly one pipeline ARN.
+  # ============================================================
+  EventBridgeInvokePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${LabName}-eventbridge-pipeline-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: events.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: !Sub ${LabName}-start-pipeline
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: codepipeline:StartPipelineExecution
+                Resource: !ImportValue
+                  Fn::Sub: ${LabName}-PipelineArn
+
+  # ============================================================
+  # EVENTBRIDGE RULE - listens for ECR's "Image Action" event, which
+  # fires whenever an image is pushed to any ECR repo in the account.
+  # We filter it down to:
+  #   - this specific repository
+  #   - action-type PUSH (not DELETE)
+  #   - result SUCCESS (ignore failed pushes)
+  # A match triggers CodePipeline to start a new execution, which then
+  # pulls the just-pushed image via the ECR source action (Task 7b)
+  # and runs the blue/green deployment end-to-end with zero manual steps.
+  # ============================================================
+  EcrPushRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${LabName}-ecr-push-rule
+      Description: Triggers the pipeline when a new image is pushed to ECR
+      EventPattern:
+        source:
+          - aws.ecr
+        detail-type:
+          - ECR Image Action
+        detail:
+          action-type:
+            - PUSH
+          result:
+            - SUCCESS
+          repository-name:
+            - !ImportValue
+              Fn::Sub: ${LabName}-EcrRepositoryName
+      State: ENABLED
+      Targets:
+        - Arn: !ImportValue
+            Fn::Sub: ${LabName}-PipelineArn
+          Id: !Sub ${LabName}-pipeline-target
+          RoleArn: !GetAtt EventBridgeInvokePipelineRole.Arn
+
+Outputs:
+  EcrPushRuleArn:
+    Value: !GetAtt EcrPushRule.Arn
+    Export:
+      Name: !Sub ${LabName}-EcrPushRuleArn
