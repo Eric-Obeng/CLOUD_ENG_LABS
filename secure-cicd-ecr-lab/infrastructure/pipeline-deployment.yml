@@ -1,0 +1,4 @@
+template-file-path: secure-cicd-ecr-lab/infrastructure/pipeline.yml
+parameters:
+  LabName: secure-cicd-ecs-lab
+tags: {}
