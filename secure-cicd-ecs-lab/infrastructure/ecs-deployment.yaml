@@ -1,0 +1,3 @@
+template-file-path: secure-cicd-ecs-lab/infrastructure/ecs.yaml
+Parameters:
+tags: {}
