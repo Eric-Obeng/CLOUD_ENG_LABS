@@ -149,6 +149,14 @@ everything down cleanly, delete stacks in **reverse** of the deploy order,
 since stacks reference each other via `Fn::ImportValue`/`Export` and
 CloudFormation refuses to delete a stack whose export is still in use.
 
+**Disable GitSync before deleting anything.** GitSync is enabled on all 9
+stacks (see above). If you call `delete-stack` while GitSync is still
+connected, GitSync detects "drift" against the template in git and silently
+reverts the delete back to `UPDATE_COMPLETE` instead of actually deleting -
+the stack looks untouched with no obvious error. Disable Git sync on
+**every** stack first (console -> Stack -> Git sync tab -> Disable), not
+just the one you notice failing, before running any of the commands below.
+
 Two resources must be emptied manually before their owning stack can be
 deleted (CloudFormation won't delete a non-empty S3 bucket or ECR repo):
 
@@ -162,6 +170,27 @@ aws ecr batch-delete-image \
   --region eu-central-1 \
   --image-ids "$(aws ecr list-images --repository-name secure-cicd-ecs-lab-app --region eu-central-1 --query 'imageIds' --output json)"
 ```
+
+**Gotcha: the artifact bucket has versioning enabled**, so `aws s3 rm
+--recursive` only removes current object versions - old versions and
+delete markers remain, and `delete-stack` fails with "bucket not empty"
+even though the bucket looks empty. If that happens, purge versions and
+delete markers explicitly before retrying:
+
+```bash
+BUCKET=secure-cicd-ecs-lab-pipeline-artifacts-288761743924
+
+aws s3api list-object-versions --bucket "$BUCKET" --region eu-central-1 \
+  --query '{Objects: Versions[].{Key:Key,VersionId:VersionId}}' --output json > versions.json
+aws s3api delete-objects --bucket "$BUCKET" --region eu-central-1 --delete file://versions.json
+
+aws s3api list-object-versions --bucket "$BUCKET" --region eu-central-1 \
+  --query '{Objects: DeleteMarkers[].{Key:Key,VersionId:VersionId}}' --output json > markers.json
+aws s3api delete-objects --bucket "$BUCKET" --region eu-central-1 --delete file://markers.json
+```
+
+(skip a `delete-objects` call if its file's `Objects` is `null`/empty - it
+errors on an empty delete list.)
 
 Delete stacks in this order, waiting for each to fully finish before
 starting the next:
