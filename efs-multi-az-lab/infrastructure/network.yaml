@@ -1,0 +1,205 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 1 - Networking layer for efs-multi-az-lab.
+  Multi-AZ VPC, private subnets only - no Internet Gateway, no NAT Gateway.
+  Instances reach SSM entirely via VPC Interface Endpoints.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: efs-multi-az-lab
+
+  # Overall VPC address range. /16 gives us 65,536 IPs - way more than we
+  # need, but leaves room to add more subnets/AZs later without redesigning.
+  VpcCidr:
+    Type: String
+    Default: 10.0.0.0/16
+
+  # Private subnets hold every resource in this lab (EC2 instances, EFS
+  # mount targets, VPC endpoint ENIs). There are no public subnets at all -
+  # this lab has no internet-facing component, unlike the ALB in the ECS lab.
+  PrivateSubnetACidr:
+    Type: String
+    Default: 10.0.10.0/24
+
+  PrivateSubnetBCidr:
+    Type: String
+    Default: 10.0.11.0/24
+
+Resources:
+  # ============================================================
+  # VPC - the isolated network container for everything else.
+  # DNS support/hostnames must be enabled for VPC Interface
+  # Endpoints' private DNS resolution to work later.
+  # ============================================================
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-vpc
+        - Key: Lab
+          Value: !Ref LabName
+
+  # ============================================================
+  # PRIVATE SUBNETS - one per AZ, for Multi-AZ high availability.
+  # No public IPs, no internet route at all - deliberately no
+  # Internet Gateway resource exists anywhere in this stack.
+  # ============================================================
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetACidr
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-private-a
+        - Key: Lab
+          Value: !Ref LabName
+
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: !Ref PrivateSubnetBCidr
+      AvailabilityZone: !Select [1, !GetAZs ""]
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-private-b
+        - Key: Lab
+          Value: !Ref LabName
+
+  # ============================================================
+  # PRIVATE ROUTE TABLE - has no internet route (no IGW, no NAT
+  # exist in this stack to route to). Traffic within the VPC still
+  # works via the implicit local route.
+  # ============================================================
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-private-rt
+
+  PrivateSubnetARouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+
+  PrivateSubnetBRouteAssoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+
+  # ============================================================
+  # Security group shared by all VPC Interface Endpoints (SSM,
+  # SSM Messages, EC2 Messages). Interface endpoints are ENIs with
+  # their own SG, so we only allow HTTPS (443) from inside our own
+  # VPC CIDR - nothing external can ever reach these endpoints.
+  # ============================================================
+  VpcEndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow HTTPS from within the VPC to interface endpoints
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref VpcCidr
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-vpce-sg
+
+  # ============================================================
+  # SSM INTERFACE ENDPOINT - control-plane calls the SSM agent
+  # makes to register/poll the instance (e.g. UpdateInstanceInfo).
+  # ============================================================
+  SsmEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssm
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+  # ============================================================
+  # SSM MESSAGES INTERFACE ENDPOINT - the actual Session Manager
+  # data channel (the interactive shell traffic itself).
+  # ============================================================
+  SsmMessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ssmmessages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+  # ============================================================
+  # EC2 MESSAGES INTERFACE ENDPOINT - used by the SSM agent for
+  # acknowledgements/status back to the service. All three SSM
+  # endpoints (this one, ssm, ssmmessages) are required together
+  # for Session Manager to work with no internet route.
+  # ============================================================
+  Ec2MessagesEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.ec2messages
+      VpcEndpointType: Interface
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref PrivateSubnetA
+        - !Ref PrivateSubnetB
+      SecurityGroupIds:
+        - !Ref VpcEndpointSecurityGroup
+
+# ============================================================
+# Outputs - exported so later stacks (security groups, EFS, ASG)
+# can import these values with Fn::ImportValue instead of us
+# hardcoding IDs or passing endless parameters between stacks.
+# ============================================================
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub ${LabName}-VpcId
+
+  PrivateSubnetIds:
+    Value: !Join [",", [!Ref PrivateSubnetA, !Ref PrivateSubnetB]]
+    Export:
+      Name: !Sub ${LabName}-PrivateSubnetIds
+
+  PrivateSubnetAId:
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub ${LabName}-PrivateSubnetAId
+
+  PrivateSubnetBId:
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub ${LabName}-PrivateSubnetBId
+
+  VpcCidrOutput:
+    Value: !Ref VpcCidr
+    Export:
+      Name: !Sub ${LabName}-VpcCidr

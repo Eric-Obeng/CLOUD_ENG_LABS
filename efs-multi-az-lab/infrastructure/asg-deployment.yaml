@@ -1,0 +1,8 @@
+template-file-path: efs-multi-az-lab/infrastructure/asg.yaml
+parameters:
+  LabName: efs-multi-az-lab
+  InstanceType: t3.micro
+  MinSize: 1
+  DesiredCapacity: 2
+  MaxSize: 4
+tags: {}

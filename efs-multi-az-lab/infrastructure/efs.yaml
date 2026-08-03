@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 3 - Amazon EFS filesystem for efs-multi-az-lab.
+  One filesystem, one mount target per private subnet/AZ, encrypted at rest.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: efs-multi-az-lab
+
+Resources:
+  # ============================================================
+  # EFS FILESYSTEM - the single shared filesystem every instance in
+  # the ASG mounts. Bursting throughput mode + encryption at rest are
+  # sane defaults for a lab workload; LifecyclePolicy moves cold files
+  # to Infrequent Access storage to keep cost down without touching
+  # the read/write path.
+  # ============================================================
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    Properties:
+      Encrypted: true
+      PerformanceMode: generalPurpose
+      ThroughputMode: bursting
+      LifecyclePolicies:
+        - TransitionToIA: AFTER_30_DAYS
+      FileSystemTags:
+        - Key: Name
+          Value: !Sub ${LabName}-efs
+        - Key: Lab
+          Value: !Ref LabName
+
+  # ============================================================
+  # MOUNT TARGETS - one ENI per AZ, each in that AZ's private subnet,
+  # so instances mount over the local-AZ path rather than crossing
+  # AZs to reach the filesystem. Both share the EfsSecurityGroup
+  # (NFS only from the instance SG - see security-groups.yaml).
+  # ============================================================
+  MountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !ImportValue
+        Fn::Sub: ${LabName}-PrivateSubnetAId
+      SecurityGroups:
+        - !ImportValue
+          Fn::Sub: ${LabName}-EfsSecurityGroupId
+
+  MountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties:
+      FileSystemId: !Ref FileSystem
+      SubnetId: !ImportValue
+        Fn::Sub: ${LabName}-PrivateSubnetBId
+      SecurityGroups:
+        - !ImportValue
+          Fn::Sub: ${LabName}-EfsSecurityGroupId
+
+Outputs:
+  FileSystemId:
+    Value: !Ref FileSystem
+    Export:
+      Name: !Sub ${LabName}-FileSystemId

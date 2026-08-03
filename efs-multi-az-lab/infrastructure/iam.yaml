@@ -1,0 +1,51 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 4 - IAM instance profile for efs-multi-az-lab.
+  Grants EC2 instances SSM Session Manager access - nothing else.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: efs-multi-az-lab
+
+Resources:
+  # ============================================================
+  # INSTANCE ROLE - trusted only by the EC2 service. The attached
+  # AWS-managed policy is exactly what Session Manager needs (agent
+  # registration, the Session Manager data channel) and nothing more -
+  # this is the only IAM permission any instance in this lab has.
+  # ============================================================
+  InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${LabName}-instance-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-instance-role
+        - Key: Lab
+          Value: !Ref LabName
+
+  # ============================================================
+  # INSTANCE PROFILE - the actual object EC2 launch templates
+  # reference; wraps the role above so it can be attached to instances.
+  # ============================================================
+  InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref InstanceRole
+
+Outputs:
+  InstanceProfileArn:
+    Value: !GetAtt InstanceProfile.Arn
+    Export:
+      Name: !Sub ${LabName}-InstanceProfileArn

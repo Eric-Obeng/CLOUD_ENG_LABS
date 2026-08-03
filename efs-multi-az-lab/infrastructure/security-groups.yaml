@@ -1,0 +1,63 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Task 2 - Security groups for efs-multi-az-lab.
+  Least-privilege chain: EC2 instance SG -> EFS SG (by SG reference, not CIDR).
+
+Parameters:
+  LabName:
+    Type: String
+    Default: efs-multi-az-lab
+
+Resources:
+  # ============================================================
+  # INSTANCE SECURITY GROUP - attached to every EC2 instance in the
+  # Auto Scaling group. No inbound rules at all: Session Manager
+  # connections are established outbound by the SSM agent (to the
+  # VPC endpoints), so nothing needs to reach the instance directly.
+  # Egress is left open (default "allow all") so instances can reach
+  # the SSM interface endpoints (443) and EFS mount targets (2049).
+  # ============================================================
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: EC2 instances - no inbound; SSM access is outbound-only
+      VpcId: !ImportValue
+        Fn::Sub: ${LabName}-VpcId
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-instance-sg
+
+  # ============================================================
+  # EFS SECURITY GROUP - attached to the EFS mount targets. Ingress
+  # source is the instance security group ITSELF (SourceSecurityGroupId),
+  # not a CIDR range - only traffic from instances in this lab's ASG
+  # can ever reach the filesystem on the NFS port. This is the
+  # least-privilege requirement from the rubric, enforced at the
+  # network layer rather than relying on filesystem-level ACLs alone.
+  # ============================================================
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow inbound NFS (2049) only from the instance security group
+      VpcId: !ImportValue
+        Fn::Sub: ${LabName}-VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 2049
+          ToPort: 2049
+          SourceSecurityGroupId: !Ref InstanceSecurityGroup
+          Description: NFS from EC2 instances only
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-efs-sg
+
+Outputs:
+  InstanceSecurityGroupId:
+    Value: !Ref InstanceSecurityGroup
+    Export:
+      Name: !Sub ${LabName}-InstanceSecurityGroupId
+
+  EfsSecurityGroupId:
+    Value: !Ref EfsSecurityGroup
+    Export:
+      Name: !Sub ${LabName}-EfsSecurityGroupId

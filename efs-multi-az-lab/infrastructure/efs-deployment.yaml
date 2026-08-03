@@ -1,0 +1,4 @@
+template-file-path: efs-multi-az-lab/infrastructure/efs.yaml
+parameters:
+  LabName: efs-multi-az-lab
+tags: {}
