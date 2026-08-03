@@ -17,9 +17,20 @@ This reuses the private-subnet-only, VPC-endpoint networking pattern from
 the `secure-cicd-ecs-lab` in this repo, trimmed down (no public
 subnets/ALB needed here) and re-pointed at SSM instead of ECR/Logs.
 
+## Architecture diagram
+
+![Architecture Diagram](./architecture-diagram.png)
+
+Covers the VPC, both AZs' private subnets, the ASG boundary, the shared EFS
+filesystem and its per-AZ mount targets, the SSM interface endpoints, and
+the SSM-only access path. Source is an HTML/SVG page, exported to PNG via
+headless Chrome (`chrome --headless --screenshot`) rather than the Python
+`diagrams` library `secure-cicd-ecs-lab` uses - functionally equivalent
+diagram-as-code, just a different renderer.
+
 ## Repo layout
 
-```
+```text
 efs-multi-az-lab/
 ├── infrastructure/                        CloudFormation templates (one stack per file)
 │   ├── network.yaml                       VPC, 2 private subnets, SSM VPC endpoints
@@ -134,6 +145,6 @@ itself is removed.
 
 ## Still to do
 
-- [ ] Architecture diagram (diagram-as-code or draw.io)
+- [x] Architecture diagram drafted (see "Architecture diagram" above) - still needs exporting to a static image and committing
 - [ ] Enable GitSync on all 5 stacks, connected to `main`
 - [ ] Live validation per the "Validating the lab" section above
