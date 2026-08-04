@@ -44,6 +44,13 @@ Resources:
     Type: AWS::EC2::LaunchTemplate
     Properties:
       LaunchTemplateName: !Sub ${LabName}-lt
+      TagSpecifications:
+        - ResourceType: launch-template
+          Tags:
+            - Key: Name
+              Value: !Sub ${LabName}-lt
+            - Key: Lab
+              Value: !Ref LabName
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
         InstanceType: !Ref InstanceType
@@ -61,6 +68,12 @@ Resources:
             Tags:
               - Key: Name
                 Value: !Sub ${LabName}-instance
+              - Key: Lab
+                Value: !Ref LabName
+          - ResourceType: volume
+            Tags:
+              - Key: Name
+                Value: !Sub ${LabName}-instance-volume
               - Key: Lab
                 Value: !Ref LabName
         UserData:

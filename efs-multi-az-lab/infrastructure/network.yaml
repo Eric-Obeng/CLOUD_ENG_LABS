@@ -117,6 +117,11 @@ Resources:
       VpcEndpointType: Gateway
       RouteTableIds:
         - !Ref PrivateRouteTable
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-s3-endpoint
+        - Key: Lab
+          Value: !Ref LabName
 
   # ============================================================
   # Security group shared by all VPC Interface Endpoints (SSM,
@@ -137,6 +142,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${LabName}-vpce-sg
+        - Key: Lab
+          Value: !Ref LabName
 
   # ============================================================
   # SSM INTERFACE ENDPOINT - control-plane calls the SSM agent
@@ -154,6 +161,11 @@ Resources:
         - !Ref PrivateSubnetB
       SecurityGroupIds:
         - !Ref VpcEndpointSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-ssm-endpoint
+        - Key: Lab
+          Value: !Ref LabName
 
   # ============================================================
   # SSM MESSAGES INTERFACE ENDPOINT - the actual Session Manager
@@ -171,6 +183,11 @@ Resources:
         - !Ref PrivateSubnetB
       SecurityGroupIds:
         - !Ref VpcEndpointSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-ssmmessages-endpoint
+        - Key: Lab
+          Value: !Ref LabName
 
   # ============================================================
   # EC2 MESSAGES INTERFACE ENDPOINT - used by the SSM agent for
@@ -190,6 +207,11 @@ Resources:
         - !Ref PrivateSubnetB
       SecurityGroupIds:
         - !Ref VpcEndpointSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-ec2messages-endpoint
+        - Key: Lab
+          Value: !Ref LabName
 
 # ============================================================
 # Outputs - exported so later stacks (security groups, EFS, ASG)

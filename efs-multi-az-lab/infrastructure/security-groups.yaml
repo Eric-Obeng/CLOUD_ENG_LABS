@@ -26,6 +26,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${LabName}-instance-sg
+        - Key: Lab
+          Value: !Ref LabName
 
   # ============================================================
   # EFS SECURITY GROUP - attached to the EFS mount targets. Ingress
@@ -50,6 +52,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${LabName}-efs-sg
+        - Key: Lab
+          Value: !Ref LabName
 
 Outputs:
   InstanceSecurityGroupId:
