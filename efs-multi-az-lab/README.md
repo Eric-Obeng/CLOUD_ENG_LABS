@@ -61,12 +61,26 @@ aws cloudformation deploy --template-file infrastructure/iam.yaml --stack-name e
 aws cloudformation deploy --template-file infrastructure/asg.yaml --stack-name efs-lab-asg --region eu-central-1
 ```
 
+Note: the `--stack-name` above (`efs-lab-*`) is just the CloudFormation stack's own name - it's
+independent from the `LabName` parameter each template uses to name/tag its actual resources
+(default `efs-multi-az-lab`). Deploying with no `--parameter-overrides`, as above, means the real
+resources are named `efs-multi-az-lab-vpc`, `efs-multi-az-lab-asg`, etc. - not `efs-lab-*`. Look up
+the ASG by its `LabName`-based name, not the stack name, when running `aws autoscaling` commands.
+
 ## Key design decisions
 
 - **No NAT Gateway, no Internet Gateway.** Instances in the private subnets
   reach SSM entirely through 3 VPC Interface Endpoints (`ssm`,
   `ssmmessages`, `ec2messages`). EFS mount traffic never leaves the VPC -
   it goes directly to the mount target ENI's private IP in the same AZ.
+- **S3 Gateway Endpoint (free) for `dnf`.** Amazon Linux 2023's package
+  repos are themselves hosted behind an S3 bucket
+  (`al2023-repos-<region>-*.s3...`). Without this endpoint, `dnf install
+  amazon-efs-utils` in UserData has no path to S3 with no IGW/NAT, times
+  out after ~30s per repo, and silently aborts the rest of the mount
+  script - discovered live when the first two instances came up with no
+  `/mnt/efs` at all. Same category of gotcha as the ECR/S3 dependency in
+  `secure-cicd-ecs-lab`, just a different AWS service hiding behind S3.
 - **Least privilege security groups.** The EFS security group's only
   ingress rule references the instance security group _by ID_, not by
   CIDR - only traffic that is actually an ASG instance can ever reach the
@@ -83,6 +97,11 @@ aws cloudformation deploy --template-file infrastructure/asg.yaml --stack-name e
   `aws ssm start-session`.
 
 ## Validating the lab
+
+Validated live on 2026-08-04: instance in `eu-central-1a` wrote a file to
+`/mnt/efs`, and the instance in `eu-central-1b` read it back and appended
+its own line - confirming shared read/write across AZs with no manual
+mount step (both instances auto-mounted via UserData on boot).
 
 Connect to an instance via Session Manager (no SSH, no public IP):
 
@@ -145,6 +164,6 @@ itself is removed.
 
 ## Still to do
 
-- [x] Architecture diagram drafted (see "Architecture diagram" above) - still needs exporting to a static image and committing
+- [x] Architecture diagram (see "Architecture diagram" above)
+- [x] Live validation per the "Validating the lab" section above
 - [ ] Enable GitSync on all 5 stacks, connected to `main`
-- [ ] Live validation per the "Validating the lab" section above

@@ -101,6 +101,24 @@ Resources:
       RouteTableId: !Ref PrivateRouteTable
 
   # ============================================================
+  # S3 GATEWAY ENDPOINT (free - no hourly/data charge, unlike
+  # Interface endpoints). Works as a route table entry, not an ENI.
+  # Required because Amazon Linux 2023's dnf repos are themselves
+  # hosted behind an S3 bucket (al2023-repos-<region>-*.s3...) - with
+  # no IGW/NAT, `dnf install amazon-efs-utils` in the launch
+  # template's UserData has no path to S3 without this endpoint, and
+  # times out silently, aborting the rest of the mount script.
+  # ============================================================
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub com.amazonaws.${AWS::Region}.s3
+      VpcEndpointType: Gateway
+      RouteTableIds:
+        - !Ref PrivateRouteTable
+
+  # ============================================================
   # Security group shared by all VPC Interface Endpoints (SSM,
   # SSM Messages, EC2 Messages). Interface endpoints are ENIs with
   # their own SG, so we only allow HTTPS (443) from inside our own
