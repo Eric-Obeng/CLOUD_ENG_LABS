@@ -1,0 +1,103 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  GitHub OIDC trust + IAM role for GitHub Actions in secure-cicd-ecr-lab.
+  Lets GitHub Actions assume a scoped AWS role with no stored long-lived
+  credentials, and push images to only this lab's ECR repository.
+
+Parameters:
+  LabName:
+    Type: String
+    Default: secure-cicd-ecr-lab
+
+  # Format: <github-org-or-username>/<repo-name>
+  GitHubRepo:
+    Type: String
+    Default: Eric-Obeng/CLOUD_ENG_LABS
+
+  # Restricts which branch is allowed to assume this role - prevents
+  # feature branches from being able to push to this ECR repo.
+  GitHubBranch:
+    Type: String
+    Default: main
+
+  # IAM OIDC providers are account-wide, not per-project - AWS only
+  # allows ONE provider per unique URL in an account. This account
+  # already has a GitHub OIDC provider registered (from the
+  # secure-cicd-ecs-lab), so we reference the existing provider's ARN
+  # directly in the role's trust policy instead of creating a new one.
+  ExistingGitHubOidcProviderArn:
+    Type: String
+    Default: arn:aws:iam::288761743924:oidc-provider/token.actions.githubusercontent.com
+
+Resources:
+  # ============================================================
+  # GITHUB ACTIONS ROLE - the role the workflow assumes via
+  # AssumeRoleWithWebIdentity. The trust policy's Condition block is
+  # what makes this safe: it checks the JWT's "sub" claim EXACTLY
+  # matches this repo + branch, so no other GitHub repo (even in the
+  # same org) can assume this role, even if it knew the role ARN.
+  #
+  # RoleName is fixed to "github-actions-ecr-role" to match the ARN
+  # already referenced by .github/workflows/secure-cicd-ecr.yml. If a
+  # role with this name was created manually earlier, delete it first
+  # (IAM role names are unique per account) before deploying this stack.
+  # ============================================================
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: github-actions-ecr-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !Ref ExistingGitHubOidcProviderArn
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+              StringLike:
+                token.actions.githubusercontent.com:sub: !Sub repo:${GitHubRepo}:ref:refs/heads/${GitHubBranch}
+      Tags:
+        - Key: Name
+          Value: !Sub ${LabName}-github-actions-role
+        - Key: Project
+          Value: Secure-CICD-ECR-Lab
+
+  # ============================================================
+  # ECR PUSH POLICY - scoped to ONLY this lab's ECR repository, and
+  # only the actions needed to authenticate + push an image.
+  # GetAuthorizationToken must be Resource: "*" (AWS API limitation -
+  # it's a token endpoint, not repo-scoped), but every other action is
+  # locked to this lab's specific repo ARN, imported from ecr.yml.
+  # ============================================================
+  GitHubActionsEcrPolicy:
+    Type: AWS::IAM::RolePolicy
+    Properties:
+      RoleName: !Ref GitHubActionsRole
+      PolicyName: !Sub ${LabName}-github-actions-ecr-push
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EcrAuth
+            Effect: Allow
+            Action:
+              - ecr:GetAuthorizationToken
+            Resource: "*"
+          - Sid: EcrPushToThisRepoOnly
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:GetDownloadUrlForLayer
+              - ecr:BatchGetImage
+              - ecr:PutImage
+              - ecr:InitiateLayerUpload
+              - ecr:UploadLayerPart
+              - ecr:CompleteLayerUpload
+            Resource: !ImportValue secure-cicd-ecr-lab-EcrRepositoryArn
+
+Outputs:
+  GitHubActionsRoleArn:
+    Value: !GetAtt GitHubActionsRole.Arn
+    Export:
+      Name: !Sub ${LabName}-GitHubActionsRoleArn

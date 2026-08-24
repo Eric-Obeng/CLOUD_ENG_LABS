@@ -54,11 +54,17 @@ Outputs:
   RepositoryName:
     Description: Name of the private ECR repository
     Value: !Ref ApplicationRepository
+    Export:
+      Name: secure-cicd-ecr-lab-EcrRepositoryName
 
   RepositoryArn:
     Description: ARN of the private ECR repository
     Value: !GetAtt ApplicationRepository.Arn
+    Export:
+      Name: secure-cicd-ecr-lab-EcrRepositoryArn
 
   RepositoryUri:
     Description: URI used to tag, push, and pull container images
     Value: !GetAtt ApplicationRepository.RepositoryUri
+    Export:
+      Name: secure-cicd-ecr-lab-EcrRepositoryUri
