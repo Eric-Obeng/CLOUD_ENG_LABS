@@ -97,6 +97,50 @@ tagged `:latest` to the private ECR repository. `set -euo pipefail` in the
 build/push steps ensures the job fails immediately (and the pipeline stops)
 on any error rather than continuing silently.
 
+## Run the image locally
+
+Pulls and runs the exact image the pipeline pushed to ECR - the real
+end-to-end proof, not just the source code.
+
+```bash
+# 1. Authenticate Docker to ECR
+aws ecr get-login-password --region eu-central-1 | \
+  docker login --username AWS --password-stdin 288761743924.dkr.ecr.eu-central-1.amazonaws.com
+
+# 2. Pull the image the pipeline pushed
+docker pull 288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecr-lab:latest
+
+# 3. Run it, mapping container port 3000 to your machine
+docker run --rm -p 3000:3000 288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecr-lab:latest
+```
+
+In another terminal (or a browser):
+
+```bash
+curl http://localhost:3000/
+curl http://localhost:3000/health
+```
+
+Expected:
+
+```json
+{"message":"Secure CI/CD Pipeline Lab","Status":"running"}
+{"status":"healthy"}
+```
+
+### Stop the container
+
+If it's running in the foreground, `Ctrl+C` in that terminal - the `--rm`
+flag removes the container automatically once it stops.
+
+If it's running elsewhere (detached, or a different terminal), find and
+stop it from any terminal:
+
+```bash
+docker ps --filter "ancestor=288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecr-lab:latest"
+docker stop <container-id-from-above>
+```
+
 ## Deliverables
 
 - GitHub repository: https://github.com/Eric-Obeng/CLOUD_ENG_LABS
