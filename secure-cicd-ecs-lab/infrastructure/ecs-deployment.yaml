@@ -1,9 +1,0 @@
-template-file-path: secure-cicd-ecs-lab/infrastructure/ecs.yaml
-parameters:
-  LabName: secure-cicd-ecs-lab
-  TaskCpu: '256'
-  TaskMemory: '512'
-  ContainerImage: >-
-    288761743924.dkr.ecr.eu-central-1.amazonaws.com/secure-cicd-ecs-lab-app:sha-d3b7c89
-  ContainerPort: '3000'
-tags: {}

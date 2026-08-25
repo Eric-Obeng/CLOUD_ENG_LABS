@@ -1,9 +1,0 @@
-template-file-path: secure-cicd-ecs-lab/infrastructure/network.yaml
-parameters:
-  LabName: secure-cicd-ecs-lab
-  PrivateSubnetACidr: 10.0.10.0/24
-  PrivateSubnetBCidr: 10.0.11.0/24
-  VpcCidr: 10.0.0.0/16
-  PublicSubnetBCidr: 10.0.1.0/24
-  PublicSubnetACidr: 10.0.0.0/24
-tags: {}

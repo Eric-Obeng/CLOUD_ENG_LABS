@@ -1,4 +1,0 @@
-template-file-path: secure-cicd-ecs-lab/infrastructure/eventbridge.yaml
-parameters:
-  LabName: secure-cicd-ecs-lab
-tags: {}

@@ -1,7 +1,0 @@
-template-file-path: secure-cicd-ecs-lab/infrastructure/github-oidc.yaml
-parameters:
-  LabName: secure-cicd-ecs-lab
-  ExistingGitHubOidcProviderArn: arn:aws:iam::288761743924:oidc-provider/token.actions.githubusercontent.com
-  GitHubBranch: main
-  GitHubRepo: Eric-Obeng/CLOUD_ENG_LABS
-tags: {}

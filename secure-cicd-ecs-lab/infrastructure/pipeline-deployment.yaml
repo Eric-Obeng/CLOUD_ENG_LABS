@@ -1,3 +1,0 @@
-template-file-path: secure-cicd-ecs-lab/infrastructure/pipeline.yaml
-Parameters:
-tags: {}

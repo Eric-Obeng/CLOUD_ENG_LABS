@@ -1,4 +1,0 @@
-template-file-path: secure-cicd-ecr-lab/infrastructure/codedeploy.yml
-parameters:
-  LabName: secure-cicd-ecs-lab
-tags: {}
