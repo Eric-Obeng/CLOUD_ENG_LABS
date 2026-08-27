@@ -13,31 +13,15 @@ role - no AWS access keys are stored in GitHub at any point.
 
 ## Architecture diagram
 
-```mermaid
-flowchart LR
-    subgraph GitHub["GitHub"]
-        Push["git push to main"]
-        Workflow["GitHub Actions workflow\nsecure-cicd-ecr.yml"]
-        OIDC["GitHub OIDC token issuer"]
-        Push --> Workflow
-        Workflow -- "requests JWT" --> OIDC
-    end
+![Architecture Diagram](./architecture-diagram.png)
 
-    subgraph AWS["AWS Account 288761743924 (eu-central-1)"]
-        Provider["IAM OIDC Provider\ntoken.actions.githubusercontent.com"]
-        Role["IAM Role\ngithub-actions-ecr-role\n(trust: repo:Eric-Obeng/CLOUD_ENG_LABS:ref:refs/heads/main)"]
-        Policy["Inline policy:\necr:PutImage / Upload* / GetAuthorizationToken\nscoped to this repo's ARN only"]
-        ECR["Private ECR repository\nsecure-cicd-ecr-lab\n(scan-on-push, AES256, lifecycle policy)"]
-
-        Provider --> Role
-        Role --- Policy
-        Role -- "sts:AssumeRoleWithWebIdentity" --> ECR
-    end
-
-    OIDC -- "JWT (sub, aud claims)" --> Provider
-    Workflow -- "docker build" --> Image["Container image\n(node:22-alpine, non-root)"]
-    Image -- "docker push :latest" --> ECR
-```
+Covers the trust/auth path (GitHub push -> OIDC JWT -> IAM role trust
+policy -> temporary AWS credentials) on the left and right of the account
+boundary, the least-privilege inline policy scoping pushes to this one
+repo's ARN, and the ECR repo's own security settings (scan-on-push, AES256,
+lifecycle policy). Source is an HTML/SVG page, exported to PNG via headless
+Chrome (`chrome --headless --screenshot`), the same approach used for the
+`efs-multi-az-lab` diagram in this repo.
 
 The trust policy's `Condition` block checks the JWT's `sub` claim exactly
 matches `repo:Eric-Obeng/CLOUD_ENG_LABS:ref:refs/heads/main`, so no other
